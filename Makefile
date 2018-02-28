@@ -39,6 +39,7 @@ firmware.elf: $(OBJS)
 
 %.bin: %.elf
 	$(CP) -O binary $< $@
+	./checksum -v -p LPC11U34_311 $@
 
 clean:
 	rm -f */*.o *.o *.elf *.bin *.s
