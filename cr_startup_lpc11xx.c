@@ -27,20 +27,6 @@
 // CODE RED TECHNOLOGIES LTD. 
 //
 //*****************************************************************************
-#if defined (__cplusplus)
-#ifdef __REDLIB__
-#error Redlib does not support C++
-#else
-//*****************************************************************************
-//
-// The entry point for the C++ library startup
-//
-//*****************************************************************************
-extern "C" {
-	extern void __libc_init_array(void);
-}
-#endif
-#endif
 
 #define WEAK __attribute__ ((weak))
 #define ALIAS(f) __attribute__ ((weak, alias (#f)))
@@ -50,11 +36,6 @@ extern "C" {
 // Code Red - if CMSIS is being used, then SystemInit() routine
 // will be called by startup code rather than in application's main()
 extern void SystemInit(void);
-
-//*****************************************************************************
-#if defined (__cplusplus)
-extern "C" {
-#endif
 
 //*****************************************************************************
 //
@@ -248,9 +229,6 @@ void IOH_IRQHandler (void) ALIAS(IntDefaultHandler);
 // main() is the entry point for Newlib based applications
 //
 //*****************************************************************************
-#if defined (__REDLIB__)
-extern void __main(void);
-#endif
 extern int main(void);
 //*****************************************************************************
 //
@@ -260,9 +238,6 @@ extern int main(void);
 extern void _vStackTop(void);
 
 //*****************************************************************************
-#if defined (__cplusplus)
-} // extern "C"
-#endif
 
 //*****************************************************************************
 //
@@ -620,7 +595,7 @@ extern unsigned int _ebss;
 // library.
 //*****************************************************************************
 __attribute__ ((section(".after_vectors")))
-void
+void 
 ResetISR(void) {
 
 #ifndef USE_OLD_STYLE_DATA_BSS_INIT
@@ -668,19 +643,7 @@ ResetISR(void) {
 	extern void SystemInit(void);
 	SystemInit();
 
-#if defined (__cplusplus)
-	//
-	// Call C++ library initialisation
-	//
-	__libc_init_array();
-#endif
-
-#if defined (__REDLIB__)
-	// Call the Redlib library, which in turn calls main()
-	__main() ;
-#else
 	main();
-#endif
 	//
 	// main() shouldn't return, but if it does, we'll just enter an infinite loop
 	//

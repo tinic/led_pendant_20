@@ -6,32 +6,36 @@
 MEMORY
 {
   /* Define each memory region */
-  MFlash32 (rx) : ORIGIN = 0x0, LENGTH = 0xA000 /* 64k */
-  RamLoc8 (rwx) : ORIGIN = 0x100000C0, LENGTH = 0x1F40 /* 8k */
+  MFlash40 (rx) : ORIGIN = 0x0, LENGTH = 0xa000 /* 40K bytes (alias Flash) */  
+  RamLoc8 (rwx) : ORIGIN = 0x10000000, LENGTH = 0x2000 /* 8K bytes (alias RAM) */  
 }
+
   /* Define a symbol for the top of each memory region */
-  __top_MFlash32 = 0x0 + 0xA000;
-  __top_RamLoc8 = 0x10000000 + 0x1F40;
+  __base_MFlash40 = 0x0  ; /* MFlash40 */  
+  __base_Flash = 0x0 ; /* Flash */  
+  __top_MFlash40 = 0x0 + 0xa000 ; /* 40K bytes */  
+  __top_Flash = 0x0 + 0xa000 ; /* 40K bytes */  
+  __base_RamLoc8 = 0x10000000  ; /* RamLoc8 */  
+  __base_RAM = 0x10000000 ; /* RAM */  
+  __top_RamLoc8 = 0x10000000 + 0x2000 ; /* 8K bytes */  
+  __top_RAM = 0x10000000 + 0x2000 ; /* 8K bytes */  
 
 ENTRY(ResetISR)
 
 SECTIONS
 {
-
-    /* MAIN TEXT SECTION */ 
+    /* MAIN TEXT SECTION */
     .text : ALIGN(4)
     {
         FILL(0xff)
+        __vectors_start__ = ABSOLUTE(.) ;
         KEEP(*(.isr_vector))
-		*(.text.ResetISR)
-		. = 0x200;
-        
         /* Global Section Table */
         . = ALIGN(4) ;
         __section_table_start = .;
         __data_section_table = .;
         LONG(LOADADDR(.data));
-        LONG(    ADDR(.data)) ;
+        LONG(    ADDR(.data));
         LONG(  SIZEOF(.data));
         __data_section_table_end = .;
         __bss_section_table = .;
@@ -40,81 +44,83 @@ SECTIONS
         __bss_section_table_end = .;
         __section_table_end = . ;
         /* End of Global Section Table */
-        
 
         *(.after_vectors*)
-        
-        *(.text*)
-        *(.rodata .rodata.*)
-        . = ALIGN(4);
-        
-        /* C++ constructors etc */
-        . = ALIGN(4);
-        KEEP(*(.init))
-        
-        . = ALIGN(4);
-        __preinit_array_start = .;
-        KEEP (*(.preinit_array))
-        __preinit_array_end = .;
-        
-        . = ALIGN(4);
-        __init_array_start = .;
-        KEEP (*(SORT(.init_array.*)))
-        KEEP (*(.init_array))
-        __init_array_end = .;
-        
-        KEEP(*(.fini));
-        
-        . = ALIGN(0x4);
-        KEEP (*crtbegin.o(.ctors))
-        KEEP (*(EXCLUDE_FILE (*crtend.o) .ctors))
-        KEEP (*(SORT(.ctors.*)))
-        KEEP (*crtend.o(.ctors))
-        
-        . = ALIGN(0x4);
-        KEEP (*crtbegin.o(.dtors))
-        KEEP (*(EXCLUDE_FILE (*crtend.o) .dtors))
-        KEEP (*(SORT(.dtors.*)))
-        KEEP (*crtend.o(.dtors))
-        /* End C++ */
-    } > MFlash32
 
+    } >MFlash40
+
+    .text : ALIGN(4)
+    {
+        *(.text*)
+        *(.rodata .rodata.* .constdata .constdata.*)
+        . = ALIGN(4);
+            /* C++ constructors etc */
+            . = ALIGN(4);
+            KEEP(*(.init))
+            
+            . = ALIGN(4);
+            __preinit_array_start = .;
+            KEEP (*(.preinit_array))
+            __preinit_array_end = .;
+            
+            . = ALIGN(4);
+            __init_array_start = .;
+            KEEP (*(SORT(.init_array.*)))
+            KEEP (*(.init_array))
+            __init_array_end = .;
+            
+            KEEP(*(.fini));
+            
+            . = ALIGN(4);
+            KEEP (*crtbegin.o(.ctors))
+            KEEP (*(EXCLUDE_FILE (*crtend.o) .ctors))
+            KEEP (*(SORT(.ctors.*)))
+            KEEP (*crtend.o(.ctors))
+            
+            . = ALIGN(4);
+            KEEP (*crtbegin.o(.dtors))
+            KEEP (*(EXCLUDE_FILE (*crtend.o) .dtors))
+            KEEP (*(SORT(.dtors.*)))
+            KEEP (*crtend.o(.dtors))
+            . = ALIGN(4);
+            /* End C++ */
+    } > MFlash40
     /*
      * for exception handling/unwind - some Newlib functions (in common
-     * with C++ and STDC++) use this.
+     * with C++ and STDC++) use this. 
      */
-    .ARM.extab : ALIGN(4)
+    .ARM.extab : ALIGN(4) 
     {
         *(.ARM.extab* .gnu.linkonce.armextab.*)
-    } > MFlash32
+    } > MFlash40
     __exidx_start = .;
-    
+
     .ARM.exidx : ALIGN(4)
     {
         *(.ARM.exidx* .gnu.linkonce.armexidx.*)
-    } > MFlash32
+    } > MFlash40
     __exidx_end = .;
-    
+
     _etext = .;
         
-    
     /* MAIN DATA SECTION */
-
     .uninit_RESERVED : ALIGN(4)
     {
         KEEP(*(.bss.$RESERVED*))
+        . = ALIGN(4) ;
+        _end_uninit_RESERVED = .;
     } > RamLoc8
-
+    /* Main DATA section (RamLoc8) */
     .data : ALIGN(4)
     {
-        FILL(0xff)
-        _data = .;
-        *(vtable)
-        *(.data*)
-        . = ALIGN(4) ;
-        _edata = .;
-    } > RamLoc8 AT>MFlash32
-
+       FILL(0xff)
+       _data = . ;
+       *(vtable)
+       *(.ramfunc*)
+       *(.data*)
+       . = ALIGN(4) ;
+       _edata = . ;
+    } > RamLoc8 AT>MFlash40
     /* MAIN BSS SECTION */
     .bss : ALIGN(4)
     {
@@ -124,10 +130,34 @@ SECTIONS
         . = ALIGN(4) ;
         _ebss = .;
         PROVIDE(end = .);
-        __end__ = .;
     } > RamLoc8
-    
-    PROVIDE(_pvHeapStart = .);
-    PROVIDE(_vStackTop = __top_RamLoc8 - 0);
+    /* DEFAULT NOINIT SECTION */
+    .noinit (NOLOAD): ALIGN(4)
+    {
+        _noinit = .;
+        *(.noinit*) 
+         . = ALIGN(4) ;
+        _end_noinit = .;
+    } > RamLoc8
+    PROVIDE(_pvHeapStart = DEFINED(__user_heap_base) ? __user_heap_base : .);
+    PROVIDE(_vStackTop = DEFINED(__user_stack_top) ? __user_stack_top : __top_RamLoc8 - 0);
+
+    /* ## Create checksum value (used in startup) ## */
+    PROVIDE(__valid_user_code_checksum = 0 - 
+                                         (_vStackTop 
+                                         + (ResetISR + 1) 
+                                         + (( DEFINED(NMI_Handler) ? NMI_Handler : M0_NMI_Handler ) + 1) 
+                                         + (( DEFINED(HardFault_Handler) ? HardFault_Handler : M0_HardFault_Handler ) + 1) 
+                                         )
+           );
+
+    /* Provide basic symbols giving location and size of main text
+     * block, including initial values of RW data sections. Note that
+     * these will need extending to give a complete picture with
+     * complex images (e.g multiple Flash banks).
+     */
+    _image_start = LOADADDR(.text);
+    _image_end = LOADADDR(.data) + SIZEOF(.data);
+    _image_size = _image_end - _image_start;
 }
 
