@@ -28,6 +28,9 @@ OBJS= main.o sysinit.o cr_startup_lpc11xx.o printf.o lpc_chip_11uxx_lib/src/sysi
 upload: firmware.bin
 	./lpc21isp/lpc21isp -control -donotstart -bin $< $(TTY) 115200 0
 
+#upload: firmware.hex
+#	./lpc21isp/lpc21isp -control $< $(TTY) 115200 0
+
 leddebug: leddebug.cpp
 	c++ -o $@ $<
 
@@ -40,6 +43,9 @@ firmware.elf: $(OBJS)
 %.bin: %.elf
 	$(CP) -O binary $< $@
 	./checksum -v -p LPC11U34_311 $@
+
+%.hex: %.bin
+	$(CP) -I binary $< -O ihex $@
 
 clean:
 	rm -f */*.o *.o *.elf *.bin *.s
