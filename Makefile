@@ -9,6 +9,19 @@ CC = $(TRGT)gcc
 CXX = $(TRGT)g++
 CP = $(TRGT)objcopy
 DUMP = $(TRGT)objdump
+CHECKSUM = ./checksum
+
+ifeq ($(OS),Windows_NT)
+	CHECKSUM = ./checksum_win
+else
+	UNAME_S := $(shell uname -s)
+	ifeq ($(UNAME_S),Linux)
+		CHECKSUM = ./checksum
+	endif
+	ifeq ($(UNAME_S),Darwin)
+		CHECKSUM = ./checksum_darwin
+	endif
+endif
 
 # compiler and linker settings
 COMMONFLAGS = -DCORE_M0 -mcpu=cortex-m0 -mthumb -I./ -Ilpc_chip_11uxx_lib -Ilpc_chip_11uxx_lib/inc -Os -ggdb
@@ -25,7 +38,7 @@ OBJS= main.o sysinit.o cr_startup_lpc11xx.o printf.o lpc_chip_11uxx_lib/src/sysi
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 # default target
-upload: firmware.bin
+upload: firmware.bin ./lpc21isp/lpc21isp
 	./lpc21isp/lpc21isp -control -donotstart -bin $< $(TTY) 115200 0
 
 #upload: firmware.hex
@@ -42,14 +55,16 @@ firmware.elf: $(OBJS)
 
 %.bin: %.elf
 	$(CP) -O binary $< $@
-	./checksum -v -p LPC11U34_311 $@
+	$(CHECKSUM) -v -p LPC11U34_311 $@
 
 %.hex: %.bin
 	$(CP) -I binary $< -O ihex $@
 
 clean:
-	rm -f */*.o *.o *.elf *.bin *.s
+	rm -f */*.o */*.o *.o *.elf *.bin *.s ./lpc21isp/lpc21isp 
 
 # these target names don't represent real files
-.PHONY: upload dump clean
+.PHONY: upload dump clean ./lpc21isp/lpc21isp
 
+./lpc21isp/lpc21isp:
+	$(MAKE) -C ./lpc21isp
