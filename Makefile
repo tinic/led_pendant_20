@@ -1,8 +1,5 @@
 # Minimal gcc makefile for LPC11U34
 
-# default Linux USB device name for upload
-TTY ?= /dev/ttyUSB*
-
 # use the arm cross compiler, not std gcc
 TRGT = arm-none-eabi-
 CC = $(TRGT)gcc
@@ -10,16 +7,20 @@ CXX = $(TRGT)g++
 CP = $(TRGT)objcopy
 DUMP = $(TRGT)objdump
 CHECKSUM = ./checksum
+TTY = /dev/ttyUSB*
 
 ifeq ($(OS),Windows_NT)
 	CHECKSUM = ./checksum_win
+	TTY = /dev/ttyS*
 else
 	UNAME_S := $(shell uname -s)
 	ifeq ($(UNAME_S),Linux)
 		CHECKSUM = ./checksum
+		TTY = /dev/ttyUSB*
 	endif
 	ifeq ($(UNAME_S),Darwin)
 		CHECKSUM = ./checksum_darwin
+		TTY = /dev/tty.usb*
 	endif
 endif
 
