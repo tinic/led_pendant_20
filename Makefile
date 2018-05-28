@@ -6,23 +6,24 @@ CC = $(TRGT)gcc
 CXX = $(TRGT)g++
 CP = $(TRGT)objcopy
 DUMP = $(TRGT)objdump
-CHECKSUM = ./checksum
+CHECKSUM = ./lpc-checksum-fix/lpc-checksum-fix
 TTY = /dev/ttyUSB*
 
-ifeq ($(OS),Windows_NT)
-	CHECKSUM = ./checksum_win
-	TTY = /dev/ttyS*
-else
-	UNAME_S := $(shell uname -s)
-	ifeq ($(UNAME_S),Linux)
-		CHECKSUM = ./checksum
-		TTY = /dev/ttyUSB*
-	endif
-	ifeq ($(UNAME_S),Darwin)
-		CHECKSUM = ./checksum_darwin
-		TTY = /dev/tty.usb*
-	endif
-endif
+
+#ifeq ($(OS),Windows_NT)
+#	CHECKSUM = ./checksum_win
+#	TTY = /dev/ttyS*
+#else
+#	UNAME_S := $(shell uname -s)
+#	ifeq ($(UNAME_S),Linux)
+#		CHECKSUM = ./checksum
+#		TTY = /dev/ttyUSB*
+#	endif
+#	ifeq ($(UNAME_S),Darwin)
+#		CHECKSUM = ./checksum_darwin
+#		TTY = /dev/tty.usb*
+#	endif
+#endif
 
 # compiler and linker settings
 COMMONFLAGS = -DCORE_M0 -mcpu=cortex-m0 -mthumb -I./ -Ilpc_chip_11uxx_lib -Ilpc_chip_11uxx_lib/inc -Os -ggdb
@@ -55,8 +56,8 @@ firmware.elf: $(OBJS)
 	$(CC) -o $@ $(CFLAGS) $(LDFLAGS) $^
 
 %.bin: %.elf
-	$(CP) -O binary $< $@
-	$(CHECKSUM) -v -p LPC11U34_311 $@
+	$(CP) -O binary $< $@.nochksum.bin
+	$(CHECKSUM) $@.nochksum.bin $@
 
 %.hex: %.bin
 	$(CP) -I binary $< -O ihex $@
