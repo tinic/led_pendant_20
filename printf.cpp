@@ -38,6 +38,8 @@
 
 #include "printf.h"
 
+#ifdef NO_SX1280
+
 static void putchar(char c)
 {	
 	while ((Chip_UART_ReadLineStatus(LPC_USART) & UART_LSR_THRE) == 0) { }
@@ -243,4 +245,7 @@ int simple_sprintf(char *buf, const char *fmt, ...)
 
 	return r;
 }
+
+#endif  // #ifdef NO_SX1280
+
 

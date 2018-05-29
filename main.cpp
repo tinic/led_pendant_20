@@ -1,5 +1,5 @@
 #include <stdint.h>
-#include "printf.h"
+
 #include "chip.h"
 #include "gpio_11xx_1.h"
 #include "gpiogroup_11xx.h"
@@ -15,29 +15,1729 @@
 #define I2C_FASTPLUS_BIT IOCON_FASTI2C_EN
 #endif
 
-#define NO_SX1280
+#ifdef NO_SX1280
+#include "printf.h"
+#endif  // #ifdef NO_SX1280
+
+#define max(a,b) ((a)>(b)?(a):(b))
+#define min(a,b) ((a)<(b)?(a):(b))
+#define abs(a) ((a)<0?(-a):(a))
+#define constrain(x,a,b) ((x)>(b)?(b):(((x)<(a)?(a):(x))))
+
+static volatile uint32_t system_clock_ms = 0;
+
+typedef struct rgb_color {
+	uint8_t red, green, blue;
+	rgb_color() {};
+	rgb_color(uint8_t r, uint8_t g, uint8_t b) : red(r), green(g), blue(b) {};
+} rgb_color;
+
+static rgb_color hsvToRgb(uint16_t h, uint8_t s, uint8_t v) {
+	uint8_t f = (h % 60) * 255 / 60;
+	uint8_t p = (255 - s) * (uint16_t)v / 255;
+	uint8_t q = (255 - f * (uint16_t)s / 255) * (uint16_t)v / 255;
+	uint8_t t = (255 - (255 - f) * (uint16_t)s / 255) * (uint16_t)v / 255;
+	uint8_t r = 0, g = 0, b = 0;
+	switch ((h / 60) % 6) {
+		case 0: r = v; g = t; b = p; break;
+		case 1: r = q; g = v; b = p; break;
+		case 2: r = p; g = v; b = t; break;
+		case 3: r = p; g = q; b = v; break;
+		case 4: r = t; g = p; b = v; break;
+		case 5: r = v; g = p; b = q; break;
+	}
+	return rgb_color(r, g, b);
+}
+
+static const uint8_t gamma_curve[256] = {
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 
+	0x02, 0x02, 0x03, 0x03, 0x03, 0x03, 0x03, 0x04, 0x04, 0x04, 0x04, 0x05, 0x05, 0x05, 0x05, 0x06, 
+	0x06, 0x06, 0x07, 0x07, 0x07, 0x08, 0x08, 0x08, 0x09, 0x09, 0x09, 0x0a, 0x0a, 0x0a, 0x0b, 0x0b, 
+	0x0c, 0x0c, 0x0d, 0x0d, 0x0d, 0x0e, 0x0e, 0x0f, 0x0f, 0x10, 0x10, 0x11, 0x11, 0x12, 0x12, 0x13, 
+	0x13, 0x14, 0x15, 0x15, 0x16, 0x16, 0x17, 0x17, 0x18, 0x19, 0x19, 0x1a, 0x1b, 0x1b, 0x1c, 0x1d, 
+	0x1d, 0x1e, 0x1f, 0x1f, 0x20, 0x21, 0x21, 0x22, 0x23, 0x24, 0x24, 0x25, 0x26, 0x27, 0x28, 0x28, 
+	0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2d, 0x2e, 0x2f, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 
+	0x37, 0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 
+	0x48, 0x49, 0x4a, 0x4b, 0x4d, 0x4e, 0x4f, 0x50, 0x51, 0x52, 0x54, 0x55, 0x56, 0x57, 0x58, 0x5a, 
+	0x5b, 0x5c, 0x5d, 0x5f, 0x60, 0x61, 0x63, 0x64, 0x65, 0x67, 0x68, 0x69, 0x6b, 0x6c, 0x6d, 0x6f, 
+	0x70, 0x72, 0x73, 0x75, 0x76, 0x77, 0x79, 0x7a, 0x7c, 0x7d, 0x7f, 0x80, 0x82, 0x83, 0x85, 0x87, 
+	0x88, 0x8a, 0x8b, 0x8d, 0x8e, 0x90, 0x92, 0x93, 0x95, 0x97, 0x98, 0x9a, 0x9c, 0x9d, 0x9f, 0xa1, 
+	0xa2, 0xa4, 0xa6, 0xa8, 0xa9, 0xab, 0xad, 0xaf, 0xb0, 0xb2, 0xb4, 0xb6, 0xb8, 0xba, 0xbb, 0xbd, 
+	0xbf, 0xc1, 0xc3, 0xc5, 0xc7, 0xc9, 0xcb, 0xcd, 0xcf, 0xd1, 0xd3, 0xd5, 0xd7, 0xd9, 0xdb, 0xdd, 
+	0xdf, 0xe1, 0xe3, 0xe5, 0xe7, 0xe9, 0xeb, 0xed, 0xef, 0xf1, 0xf4, 0xf6, 0xf8, 0xfa, 0xfc, 0xff
+};
+
+static const uint8_t sine_wave[256] = {
+	0x80, 0x83, 0x86, 0x89, 0x8C, 0x90, 0x93, 0x96,
+	0x99, 0x9C, 0x9F, 0xA2, 0xA5, 0xA8, 0xAB, 0xAE,
+	0xB1, 0xB3, 0xB6, 0xB9, 0xBC, 0xBF, 0xC1, 0xC4,
+	0xC7, 0xC9, 0xCC, 0xCE, 0xD1, 0xD3, 0xD5, 0xD8,
+	0xDA, 0xDC, 0xDE, 0xE0, 0xE2, 0xE4, 0xE6, 0xE8,
+	0xEA, 0xEB, 0xED, 0xEF, 0xF0, 0xF1, 0xF3, 0xF4,
+	0xF5, 0xF6, 0xF8, 0xF9, 0xFA, 0xFA, 0xFB, 0xFC,
+	0xFD, 0xFD, 0xFE, 0xFE, 0xFE, 0xFF, 0xFF, 0xFF,
+	0xFF, 0xFF, 0xFF, 0xFF, 0xFE, 0xFE, 0xFE, 0xFD,
+	0xFD, 0xFC, 0xFB, 0xFA, 0xFA, 0xF9, 0xF8, 0xF6,
+	0xF5, 0xF4, 0xF3, 0xF1, 0xF0, 0xEF, 0xED, 0xEB,
+	0xEA, 0xE8, 0xE6, 0xE4, 0xE2, 0xE0, 0xDE, 0xDC, 
+	0xDA, 0xD8, 0xD5, 0xD3, 0xD1, 0xCE, 0xCC, 0xC9,
+	0xC7, 0xC4, 0xC1, 0xBF, 0xBC, 0xB9, 0xB6, 0xB3,
+	0xB1, 0xAE, 0xAB, 0xA8, 0xA5, 0xA2, 0x9F, 0x9C,
+	0x99, 0x96, 0x93, 0x90, 0x8C, 0x89, 0x86, 0x83,
+	0x80, 0x7D, 0x7A, 0x77, 0x74, 0x70, 0x6D, 0x6A,
+	0x67, 0x64, 0x61, 0x5E, 0x5B, 0x58, 0x55, 0x52,
+	0x4F, 0x4D, 0x4A, 0x47, 0x44, 0x41, 0x3F, 0x3C,
+	0x39, 0x37, 0x34, 0x32, 0x2F, 0x2D, 0x2B, 0x28,
+	0x26, 0x24, 0x22, 0x20, 0x1E, 0x1C, 0x1A, 0x18,
+	0x16, 0x15, 0x13, 0x11, 0x10, 0x0F, 0x0D, 0x0C,
+	0x0B, 0x0A, 0x08, 0x07, 0x06, 0x06, 0x05, 0x04,
+	0x03, 0x03, 0x02, 0x02, 0x02, 0x01, 0x01, 0x01,
+	0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x03,
+	0x03, 0x04, 0x05, 0x06, 0x06, 0x07, 0x08, 0x0A,
+	0x0B, 0x0C, 0x0D, 0x0F, 0x10, 0x11, 0x13, 0x15,
+	0x16, 0x18, 0x1A, 0x1C, 0x1E, 0x20, 0x22, 0x24,
+	0x26, 0x28, 0x2B, 0x2D, 0x2F, 0x32, 0x34, 0x37,
+	0x39, 0x3C, 0x3F, 0x41, 0x44, 0x47, 0x4A, 0x4D,
+	0x4F, 0x52, 0x55, 0x58, 0x5B, 0x5E, 0x61, 0x64,
+	0x67, 0x6A, 0x6D, 0x70, 0x74, 0x77, 0x7A, 0x7D
+};
+
+static uint32_t bird_colors[] = {
+	0x404000,
+	0x104020,
+	0x005010,
+	0x004040,
+	0x083040,
+	0x001050,
+	0x300050,
+	0x401040,
+	0x501000,
+	0x401818,
+	0x400020,
+	0x453000,
+	0x452000,
+	0x204000,
+	0x201024,
+	0x102014,
+	0x201810,
+	0x101820,
+	0x303030,
+	0x202020,
+};
+
+static uint32_t ring_colors[] = {
+	0x404000,
+	0x104020,
+	0x005010,
+	0x004040,
+	0x083040,
+	0x001050,
+	0x300050,
+	0x401040,
+	0x501000,
+	0x401818,
+	0x400020,
+	0x453000,
+	0x402000,
+	0x204000,
+	0x201024,
+	0x102014,
+	0x201810,
+	0x101820,
+	0x303030,
+	0x202020,
+};
+
+static void delay(int32_t ms) {
+	for (volatile uint32_t i = 0; i < ms*2400; i++) {}
+}
+
+class random {
+public:
+
+	random() {}
+
+	#define rot(x,k) (((x)<<(k))|((x)>>(32-(k))))
+	uint32_t get() {
+		uint32_t e = a - rot(b, 27);
+		a = b ^ rot(c, 17);
+		b = c + d;
+		c = d + e;
+		d = e + a;
+		return d;
+	}
+
+	void init(uint32_t seed) {
+		uint32_t i;
+		a = 0xf1ea5eed, b = c = d = seed;
+		for (i=0; i<20; ++i) {
+		    (void)get();
+		}
+	}
+
+	uint32_t get(uint32_t lower, uint32_t upper) {
+		return (get() % (upper-lower)) + lower;
+	}
+
+private:
+	uint32_t a; 
+	uint32_t b; 
+	uint32_t c; 
+	uint32_t d; 
+
+} random;
+
+static struct eeprom_settings {
+
+// FIXME!!!
+//#define START_ADDR_LAST_SECTOR  0x00007C00
+//#define SECTOR_SIZE             1024
+//#define IAP_LAST_SECTOR         31
+//#define IAP_NUM_BYTES_TO_WRITE  64
+
+	eeprom_settings() {
+		program_count = 0;
+		program_curr = 0;
+		program_change_count = 0;
+	}
+
+	void load() {
+		// FIXME!!!
+//		uint32_t *src = ((uint32_t *)(START_ADDR_LAST_SECTOR));
+//		uint32_t *dst =  (uint32_t *)this;
+//		for (uint32_t x = 0; x < sizeof(eeprom_settings)/4; x++) {
+//			*dst++ = *src++;
+//		}
+	}
+
+	void save() {
+		// FIXME!!!
+//		uint32_t *src = ((uint32_t *)(START_ADDR_LAST_SECTOR));
+//		uint32_t *dst =  (uint32_t *)this;
+//		for (uint32_t x = 0; x < sizeof(eeprom_settings)/4; x++) {
+//			if (*dst++ != *src++) {
+//				__disable_irq();
+//				Chip_IAP_PreSectorForReadWrite(IAP_LAST_SECTOR, IAP_LAST_SECTOR);
+//				Chip_IAP_EraseSector(IAP_LAST_SECTOR, IAP_LAST_SECTOR);
+//				Chip_IAP_PreSectorForReadWrite(IAP_LAST_SECTOR, IAP_LAST_SECTOR);
+//				Chip_IAP_CopyRamToFlash(START_ADDR_LAST_SECTOR, (uint32_t *)this, IAP_NUM_BYTES_TO_WRITE);
+//				__enable_irq();
+//				return;
+//			}
+//		}
+	}
+
+	uint32_t program_count;
+	uint32_t program_curr;
+	uint32_t program_change_count;
+	uint32_t bird_color;
+	uint32_t bird_color_index;
+	uint32_t ring_color;
+	uint32_t ring_color_index;
+	uint32_t microphone_mode;
+
+} eeprom_settings;
+
+class spi;
+static class leds {
+public:
+
+	static void set_ring(uint32_t index, uint32_t r, uint32_t g, uint32_t b) {
+		led_data[frnt_ring_indecies[index]*3+1] = r;
+		led_data[frnt_ring_indecies[index]*3+0] = g;
+		led_data[frnt_ring_indecies[index]*3+2] = b;
+		led_data[back_ring_indecies[index]*3+1] = r;
+		led_data[back_ring_indecies[index]*3+0] = g;
+		led_data[back_ring_indecies[index]*3+2] = b;
+	}
+
+	static void set_ring_synced(uint32_t index, uint32_t r, uint32_t g, uint32_t b) {
+		led_data[frnt_ring_indecies[index]*3+1] = r;
+		led_data[frnt_ring_indecies[index]*3+0] = g;
+		led_data[frnt_ring_indecies[index]*3+2] = b;
+		led_data[back_ring_indecies[(8-index)&7]*3+1] = r;
+		led_data[back_ring_indecies[(8-index)&7]*3+0] = g;
+		led_data[back_ring_indecies[(8-index)&7]*3+2] = b;
+	}
+
+	static void set_ring_all(uint32_t index, uint32_t r, uint32_t g, uint32_t b) {
+		if(index < 8) { 
+			led_data[frnt_ring_indecies[index]*3+1] = r;
+			led_data[frnt_ring_indecies[index]*3+0] = g;
+			led_data[frnt_ring_indecies[index]*3+2] = b;
+		} else if (index < 16) {
+			led_data[back_ring_indecies[index-8]*3+1] = r;
+			led_data[back_ring_indecies[index-8]*3+0] = g;
+			led_data[back_ring_indecies[index-8]*3+2] = b;
+		}
+	}
+
+	static void set_bird(uint32_t index, uint32_t r, uint32_t g, uint32_t b) {
+		led_data[frnt_bird_indecies[index]*3+1] = r;
+		led_data[frnt_bird_indecies[index]*3+0] = g;
+		led_data[frnt_bird_indecies[index]*3+2] = b;
+		led_data[back_bird_indecies[index]*3+1] = r;
+		led_data[back_bird_indecies[index]*3+0] = g;
+		led_data[back_bird_indecies[index]*3+2] = b;
+	}
+
+private:
+	friend class spi;
+
+#define TOTAL_LEDS 			24
+#define HALF_LEDS 			12
+
+	static const uint8_t frnt_ring_indecies[];
+	static const uint8_t back_ring_indecies[];
+	static const uint8_t frnt_bird_indecies[];
+	static const uint8_t back_bird_indecies[];
+
+	static uint8_t led_data[TOTAL_LEDS*3];
+
+} leds;
+
+const uint8_t leds::frnt_ring_indecies[] = { 0x14, 0x15, 0x16, 0x17, 0x10, 0x11, 0x12, 0x13 };
+const uint8_t leds::back_ring_indecies[] = { 0x03, 0x04, 0x05, 0x06, 0x07, 0x00, 0x01, 0x02 };
+const uint8_t leds::frnt_bird_indecies[] = { 0x0D, 0x0C, 0x0E, 0x0F };
+const uint8_t leds::back_bird_indecies[] = { 0x09, 0x0B, 0x0A, 0x08 };
+
+uint8_t leds::led_data[TOTAL_LEDS*3] = { 0x00 } ;
+
+static class spi {
+public:
+
+	static void init() {
+		// FIXME!!!
+	}
+
+	static void push_frame()  {
+		// FIXME!!!
+	}
+
+private:
+
+} spi;
+
+static void advance_mode(uint32_t mode) {
+	switch(mode) {
+		case	0:
+				eeprom_settings.bird_color_index++; 
+				eeprom_settings.bird_color_index %= 20; 
+				eeprom_settings.bird_color = bird_colors[eeprom_settings.bird_color_index];
+				break;
+		case	1:
+				eeprom_settings.ring_color_index++; 
+				eeprom_settings.ring_color_index %= 20; 
+				eeprom_settings.ring_color = ring_colors[eeprom_settings.ring_color_index];
+				break;
+		case	2:
+				eeprom_settings.microphone_mode ++;
+				eeprom_settings.microphone_mode %= 2;
+				break;
+	}
+}
+
+static void config_mode() {
+}
+
+static bool test_button() {
+	static uint32_t last_config_time = 0;
+	// Don't take into account this button press if we just
+	// came out of configuration
+	if ((system_clock_ms - last_config_time) < 1000) {
+		return false;
+	}
+	if (Chip_GPIO_ReadPortBit(LPC_GPIO, 0, 2)) {
+		uint32_t d_time = system_clock_ms;
+		delay(100);
+		for (;Chip_GPIO_ReadPortBit(LPC_GPIO, 0, 2);) {
+			uint32_t u_time = system_clock_ms;
+			// long press > 2 seconds gets us into config mode
+			if ((u_time - d_time) > 2000) {
+				config_mode();
+				last_config_time = system_clock_ms;
+				return false;
+			}
+		}
+		// advance program if we did not end up in config mode
+		eeprom_settings.program_curr++;
+		eeprom_settings.program_change_count++;
+		if (eeprom_settings.program_curr >= eeprom_settings.program_count) {
+			eeprom_settings.program_curr = 0;
+		}
+#ifdef NO_SX1280
+		printf("Setting program #%d\n", eeprom_settings.program_curr);
+#endif  // #ifdef NO_SX1280
+		eeprom_settings.save();
+		return true;
+	}
+	return false;
+}
+
+static void color_ring() {
+	for (; ;) {
+		for (uint32_t d = 0; d < 8; d++) {
+			leds::set_ring(d, gamma_curve[((eeprom_settings.ring_color>>16)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.ring_color>> 8)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.ring_color>> 0)&0xFF)]);
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds::set_bird(d, gamma_curve[((eeprom_settings.bird_color>>16)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.bird_color>> 8)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.bird_color>> 0)&0xFF)]);
+		}
+
+		delay(5);
+		spi::push_frame();
+		if (test_button()) {
+			return;
+		}
+	}
+}
+
+static void fade_ring() {
+	for (; ;) {
+		rgb_color color;
+		int32_t col = eeprom_settings.ring_color;
+		color = rgb_color(max(((col>>16)&0xFF)-0x20,0), max(((col>> 8)&0xFF)-0x20,0), max(((col>> 0)&0xFF)-0x20,0));
+		leds::set_ring(0, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
+		color = rgb_color(max(((col>>16)&0xFF)-0x1A,0), max(((col>> 8)&0xFF)-0x1A,0), max(((col>> 0)&0xFF)-0x1A,0));
+		leds::set_ring(1, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
+		leds::set_ring(7, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
+		color = rgb_color(max(((col>>16)&0xFF)-0x18,0), max(((col>> 8)&0xFF)-0x18,0), max(((col>> 0)&0xFF)-0x18,0));
+		leds::set_ring(2, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
+		leds::set_ring(6, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
+		color = rgb_color(max(((col>>16)&0xFF)-0x10,0), max(((col>> 8)&0xFF)-0x10,0), max(((col>> 0)&0xFF)-0x10,0));
+		leds::set_ring(3, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
+		leds::set_ring(5, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
+		color = rgb_color(max(((col>>16)&0xFF)-0x00,0), max(((col>> 8)&0xFF)-0x00,0), max(((col>> 0)&0xFF)-0x00,0));
+		leds::set_ring(4, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds::set_bird(d, gamma_curve[((eeprom_settings.bird_color>>16)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.bird_color>> 8)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.bird_color>> 0)&0xFF)]);
+		}
+
+		delay(5);
+		spi::push_frame();
+		if (test_button()) {
+			return;
+		}
+	}
+}
+
+static void rgb_walker() {
+
+	static uint8_t work_buffer[0x80] = { 0 };
+
+	for (uint32_t c = 0; c < 0x80; c++) {
+		work_buffer[c] = max(0,(sine_wave[c] - 0x80) - 0x20) ;
+	}
+
+	uint32_t walk = 0;
+	uint32_t rgb_walk = 0;
+	uint32_t flash = 0;
+	for (;;) {
+
+		rgb_color color = hsvToRgb(rgb_walk/3, 255, 255);
+		for (uint32_t d = 0; d < 8; d++) {
+			leds::set_ring(d, gamma_curve[(work_buffer[(((0x80/8)*d) + walk)&0x7F] * ((color.red)&0xFF)) >> 8],
+					 	      gamma_curve[(work_buffer[(((0x80/8)*d) + walk)&0x7F] * ((color.green)&0xFF)) >> 8],
+					 		  gamma_curve[(work_buffer[(((0x80/8)*d) + walk)&0x7F] * ((color.blue)&0xFF)) >> 8]);
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
+		}
+
+		walk ++;
+		walk &= 0x7F;
+
+		rgb_walk ++;
+		if (rgb_walk >= 360*3) {
+			rgb_walk = 0;
+		}
+
+		delay(5);
+
+		spi::push_frame();
+		if (test_button()) {
+			return;
+		}
+	}
+}
+static void rgb_glow() {
+	uint32_t rgb_walk = 0;
+	uint32_t walk = 0;
+	int32_t switch_dir = 1;
+	uint32_t switch_counter = 0;
+	for (;;) {
+
+		rgb_color color = hsvToRgb(rgb_walk, 255, 255);
+		for (uint32_t d = 0; d < 8; d++) {
+			leds::set_ring_synced(d,
+				gamma_curve[((color.red)&0xFF)/4],
+				gamma_curve[((color.green)&0xFF)/4],
+				gamma_curve[((color.blue)&0xFF)/4]
+			);
+		}
+		
+		rgb_walk ++;
+		if (rgb_walk >= 360) {
+			rgb_walk = 0;
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
+		}
+
+		delay(50);
+
+		spi::push_frame();
+		if (test_button()) {
+			return;
+		}
+	}
+}
+
+static void rgb_tracer() {
+	uint32_t rgb_walk = 0;
+	uint32_t walk = 0;
+	int32_t switch_dir = 1;
+	uint32_t switch_counter = 0;
+	for (;;) {
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds::set_ring(d,0,0,0);
+		}
+
+		rgb_color color = hsvToRgb(rgb_walk/3, 255, 255);
+		leds::set_ring_synced(walk&0x7,
+			gamma_curve[((color.red)&0xFF)/4],
+			gamma_curve[((color.green)&0xFF)/4],
+			gamma_curve[((color.blue)&0xFF)/4]
+		);
+
+		walk += switch_dir;
+
+		rgb_walk += 7;
+		if (rgb_walk >= 360*3) {
+			rgb_walk = 0;
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
+		}
+
+		switch_counter ++;
+		if (switch_counter > 64 && random.get(0,2)) {
+			switch_dir *= -1;
+			switch_counter = 0;
+			walk += switch_dir;
+			walk += switch_dir;
+		}
+
+		delay(50);
+
+		spi::push_frame();
+		if (test_button()) {
+			return;
+		}
+	}
+}
+
+static void light_tracer() {
+	uint32_t walk = 0;
+
+	rgb_color gradient[8];
+	int32_t col = eeprom_settings.ring_color;
+	gradient[7] = rgb_color(max(((col>>16)&0xFF)-0x40,0), max(((col>> 8)&0xFF)-0x40,0), max(((col>> 0)&0xFF)-0x40,0));
+	gradient[6] = rgb_color(max(((col>>16)&0xFF)-0x40,0), max(((col>> 8)&0xFF)-0x40,0), max(((col>> 0)&0xFF)-0x40,0));
+	gradient[5] = rgb_color(max(((col>>16)&0xFF)-0x30,0), max(((col>> 8)&0xFF)-0x30,0), max(((col>> 0)&0xFF)-0x30,0));
+	gradient[4] = rgb_color(max(((col>>16)&0xFF)-0x18,0), max(((col>> 8)&0xFF)-0x18,0), max(((col>> 0)&0xFF)-0x18,0));
+	gradient[3] = rgb_color(max(((col>>16)&0xFF)-0x00,0), max(((col>> 8)&0xFF)-0x00,0), max(((col>> 0)&0xFF)-0x00,0));
+	gradient[2] = rgb_color(max((col>>16)&0xFF,0x10), max((col>> 8)&0xFF,0x00), max((col>> 0)&0xFF,0x20));
+	gradient[1] = rgb_color(max((col>>16)&0xFF,0x30), max((col>> 8)&0xFF,0x30), max((col>> 0)&0xFF,0x30));
+	gradient[0] = rgb_color(max((col>>16)&0xFF,0x40), max((col>> 8)&0xFF,0x40), max((col>> 0)&0xFF,0x40));
+
+	for (;;) {
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds::set_ring((walk+d)&0x7,
+				gamma_curve[((gradient[d].red)&0xFF)],
+				gamma_curve[((gradient[d].green)&0xFF)],
+				gamma_curve[((gradient[d].blue)&0xFF)]
+			);
+		}
+
+		walk--;
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
+		}
+
+		delay(100);
+
+		spi::push_frame();
+		if (test_button()) {
+			return;
+		}
+	}
+}
+
+
+static void ring_tracer() {
+	uint32_t walk = 0;
+	int32_t switch_dir = 1;
+	uint32_t switch_counter = 0;
+	for (;;) {
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds::set_ring(d,0,0,0);
+		}
+
+		leds::set_ring_synced((walk+0)&0x7,
+			gamma_curve[(eeprom_settings.ring_color>>16)&0xFF],
+			gamma_curve[(eeprom_settings.ring_color>> 8)&0xFF],
+			gamma_curve[(eeprom_settings.ring_color>> 0)&0xFF]
+		);
+		leds::set_ring_synced((walk+1)&0x7,
+			gamma_curve[(eeprom_settings.ring_color>>16)&0xFF],
+			gamma_curve[(eeprom_settings.ring_color>> 8)&0xFF],
+			gamma_curve[(eeprom_settings.ring_color>> 0)&0xFF]
+		);
+		leds::set_ring_synced((walk+2)&0x7,
+			gamma_curve[(eeprom_settings.ring_color>>16)&0xFF],
+			gamma_curve[(eeprom_settings.ring_color>> 8)&0xFF],
+			gamma_curve[(eeprom_settings.ring_color>> 0)&0xFF]
+		);
+
+		walk += switch_dir;
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
+		}
+
+		switch_counter ++;
+		if (switch_counter > 64 && random.get(0,2)) {
+			switch_dir *= -1;
+			switch_counter = 0;
+			walk += switch_dir;
+			walk += switch_dir;
+		}
+
+		delay(50);
+
+		spi::push_frame();
+		if (test_button()) {
+			return;
+		}
+	}
+}
+
+static void ring_bar_rotate() {
+	uint32_t rgb_walk = 0;
+	uint32_t walk = 0;
+	int32_t switch_dir = 1;
+	uint32_t switch_counter = 0;
+	for (;;) {
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds::set_ring(d,0,0,0);
+		}
+
+		leds::set_ring_synced((walk+0)&0x7,
+			gamma_curve[(eeprom_settings.ring_color>>16)&0xFF],
+			gamma_curve[(eeprom_settings.ring_color>> 8)&0xFF],
+			gamma_curve[(eeprom_settings.ring_color>> 0)&0xFF]
+		);
+		leds::set_ring_synced((walk+4)&0x7,
+			gamma_curve[(eeprom_settings.ring_color>>16)&0xFF],
+			gamma_curve[(eeprom_settings.ring_color>> 8)&0xFF],
+			gamma_curve[(eeprom_settings.ring_color>> 0)&0xFF]
+		);
+
+		walk += switch_dir;
+
+		rgb_walk += 7;
+		if (rgb_walk >= 360*3) {
+			rgb_walk = 0;
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
+		}
+
+		switch_counter ++;
+		if (switch_counter > 64 && random.get(0,2)) {
+			switch_dir *= -1;
+			switch_counter = 0;
+			walk += switch_dir;
+			walk += switch_dir;
+		}
+
+		delay(50);
+
+		spi::push_frame();
+		if (test_button()) {
+			return;
+		}
+	}
+}
+
+static void ring_bar_move() {
+	uint32_t rgb_walk = 0;
+	uint32_t walk = 0;
+	int32_t switch_dir = 1;
+	uint32_t switch_counter = 0;
+
+	static int8_t indecies0[] = {
+		-1,
+		-1,
+		-1,
+		-1,
+		-1,
+		-1,
+		0,
+		1,
+		2,
+		3,
+		4
+		-1,
+		-1,
+		-1,
+		-1,
+		-1,
+	};
+
+	static int8_t indecies1[] = {
+		-1,
+		-1,
+		-1,
+		-1,
+		-1,
+		-1,
+		0,
+		7,
+		6,
+		5,
+		4,
+		-1,
+		-1,
+		-1,
+		-1,
+		-1,
+	};
+
+	for (;;) {
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds::set_ring(d,0,0,0);
+		}
+
+		if (indecies0[(walk)%15] >=0 ) {
+				leds::set_ring_synced(indecies0[(walk)%15],
+				gamma_curve[(eeprom_settings.ring_color>>16)&0xFF],
+				gamma_curve[(eeprom_settings.ring_color>> 8)&0xFF],
+				gamma_curve[(eeprom_settings.ring_color>> 0)&0xFF]
+			);	
+		}
+		if (indecies1[(walk)%15] >=0 ) {
+			leds::set_ring_synced(indecies1[(walk)%15],
+				gamma_curve[(eeprom_settings.ring_color>>16)&0xFF],
+				gamma_curve[(eeprom_settings.ring_color>> 8)&0xFF],
+				gamma_curve[(eeprom_settings.ring_color>> 0)&0xFF]
+			);
+		}
+
+		walk += switch_dir;
+
+		rgb_walk += 7;
+		if (rgb_walk >= 360*3) {
+			rgb_walk = 0;
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
+		}
+
+		switch_counter ++;
+		if (switch_counter > 64 && random.get(0,2)) {
+			switch_dir *= -1;
+			switch_counter = 0;
+			walk += switch_dir;
+			walk += switch_dir;
+		}
+
+		delay(50);
+
+		spi::push_frame();
+		if (test_button()) {
+			return;
+		}
+	}
+}
+
+static void rgb_vertical_wall() {
+	uint32_t rgb_walk = 0;
+	for (;;) {
+
+		rgb_color color;
+		color = hsvToRgb(((rgb_walk+  0)/3)%360, 255, 255);
+		leds::set_ring_synced(0, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		color = hsvToRgb(((rgb_walk+ 30)/3)%360, 255, 255);
+		leds::set_ring_synced(1, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		leds::set_ring_synced(7, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		color = hsvToRgb(((rgb_walk+120)/3)%360, 255, 255);
+		leds::set_ring_synced(2, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		leds::set_ring_synced(6, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		color = hsvToRgb(((rgb_walk+210)/3)%360, 255, 255);
+		leds::set_ring_synced(3, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		leds::set_ring_synced(5, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		color = hsvToRgb(((rgb_walk+230)/3)%360, 255, 255);
+		leds::set_ring_synced(4, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+
+		rgb_walk += 7;
+		if (rgb_walk >= 360*3) {
+			rgb_walk = 0;
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
+		}
+
+		delay(40);
+
+		spi::push_frame();
+		if (test_button()) {
+			return;
+		}
+	}
+}
+
+static void shine_vertical() {
+	uint32_t rgb_walk = 0;
+	rgb_color gradient[256];
+	for (int32_t c = 0; c < 128; c++) {
+		uint32_t r = max((eeprom_settings.ring_color>>16)&0xFF,c/2);
+		uint32_t g = max((eeprom_settings.ring_color>> 8)&0xFF,c/2);
+		uint32_t b = max((eeprom_settings.ring_color>> 0)&0xFF,c/2);
+		gradient[c] = rgb_color(r, g, b);
+	}
+	for (int32_t c = 0; c < 128; c++) {
+		uint32_t r = max((eeprom_settings.ring_color>>16)&0xFF,(128-c)/2);
+		uint32_t g = max((eeprom_settings.ring_color>> 8)&0xFF,(128-c)/2);
+		uint32_t b = max((eeprom_settings.ring_color>> 0)&0xFF,(128-c)/2);
+		gradient[c+128] = rgb_color(r, g, b);
+	}
+
+	for (;;) {
+		rgb_color color;
+		color = gradient[((rgb_walk+ 0))%256];
+		leds::set_ring_synced(0, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		color = gradient[((rgb_walk+10))%256];
+		leds::set_ring_synced(1, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		leds::set_ring_synced(7, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		color = gradient[((rgb_walk+40))%256];
+		leds::set_ring_synced(2, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		leds::set_ring_synced(6, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		color = gradient[((rgb_walk+70))%256];
+		leds::set_ring_synced(3, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		leds::set_ring_synced(5, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		color = gradient[((rgb_walk+80))%256];
+		leds::set_ring_synced(4, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+
+		rgb_walk += 7;
+		if (rgb_walk >= 256) {
+			rgb_walk = 0;
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
+		}
+
+		delay(80);
+
+		spi::push_frame();
+		if (test_button()) {
+			return;
+		}
+	}
+}
+
+static void shine_horizontal() {
+	int32_t rgb_walk = 0;
+	int32_t switch_dir = 1;
+
+	rgb_color gradient[256];
+	for (int32_t c = 0; c < 128; c++) {
+		uint32_t r = max((eeprom_settings.ring_color>>16)&0xFF,c/2);
+		uint32_t g = max((eeprom_settings.ring_color>> 8)&0xFF,c/2);
+		uint32_t b = max((eeprom_settings.ring_color>> 0)&0xFF,c/2);
+		gradient[c] = rgb_color(r, g, b);
+	}
+	for (int32_t c = 0; c < 128; c++) {
+		uint32_t r = max((eeprom_settings.ring_color>>16)&0xFF,(128-c)/2);
+		uint32_t g = max((eeprom_settings.ring_color>> 8)&0xFF,(128-c)/2);
+		uint32_t b = max((eeprom_settings.ring_color>> 0)&0xFF,(128-c)/2);
+		gradient[c+128] = rgb_color(r, g, b);
+	}
+
+	for (;;) {
+		rgb_color color;
+		color = gradient[((rgb_walk+ 0))%256];
+		leds::set_ring_synced(6, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		color = gradient[((rgb_walk+10))%256];
+		leds::set_ring_synced(7, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		leds::set_ring_synced(5, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		color = gradient[((rgb_walk+40))%256];
+		leds::set_ring_synced(0, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		leds::set_ring_synced(4, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		color = gradient[((rgb_walk+70))%256];
+		leds::set_ring_synced(1, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		leds::set_ring_synced(3, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		color = gradient[((rgb_walk+80))%256];
+		leds::set_ring_synced(2, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+
+		rgb_walk += 7*switch_dir;
+		if (rgb_walk >= 256) {
+			rgb_walk = 255;
+			switch_dir *= -1;
+		}
+		if (rgb_walk < 0) {
+			rgb_walk = 0;
+			switch_dir *= -1;
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
+		}
+
+		delay(80);
+
+		spi::push_frame();
+		if (test_button()) {
+			return;
+		}
+	}
+}
+
+static void rgb_horizontal_wall() {
+	uint32_t rgb_walk = 0;
+	for (;;) {
+
+		rgb_color color;
+		color = hsvToRgb(((rgb_walk+  0)/3)%360, 255, 255);
+		leds::set_ring_synced(6, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		color = hsvToRgb(((rgb_walk+ 30)/3)%360, 255, 255);
+		leds::set_ring_synced(7, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		leds::set_ring_synced(5, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		color = hsvToRgb(((rgb_walk+120)/3)%360, 255, 255);
+		leds::set_ring_synced(0, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		leds::set_ring_synced(4, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		color = hsvToRgb(((rgb_walk+210)/3)%360, 255, 255);
+		leds::set_ring_synced(1, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		leds::set_ring_synced(3, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		color = hsvToRgb(((rgb_walk+230)/3)%360, 255, 255);
+		leds::set_ring_synced(2, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+
+		rgb_walk += 7;
+		if (rgb_walk >= 360*3) {
+			rgb_walk = 0;
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
+		}
+
+		delay(40);
+
+		spi::push_frame();
+		if (test_button()) {
+			return;
+		}
+	}
+}
+
+static void lightning() {
+	for (;;) {
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds::set_ring(d, 0,0,0);
+		}
+
+		int index = random.get(0,128);
+		leds::set_ring_all(index,0x40,0x40,0x40);
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
+		}
+
+		delay(10);
+
+		spi::push_frame();
+		if (test_button()) {
+			return;
+		}
+	}
+}
+
+static void sparkle() {
+	for (;;) {
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds::set_ring(d, 0,0,0);
+		}
+
+		int index = random.get(0,16);
+		leds::set_ring_all(index,random.get(0x00,0x10),random.get(0x00,0x10),random.get(0,0x10));
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
+		}
+
+		delay(50);
+
+		spi::push_frame();
+		if (test_button()) {
+			return;
+		}
+	}
+}
+
+static void lightning_crazy() {
+	for (;;) {
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds::set_ring(d, 0,0,0);
+		}
+
+		int index = random.get(0,16);
+		leds::set_ring_all(index,0x40,0x40,0x40);
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
+					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
+		}
+
+		delay(10);
+
+		spi::push_frame();
+		if (test_button()) {
+			return;
+		}
+	}
+}
+
+static void heartbeat() {
+	int32_t rgb_walk = 0;
+	int32_t switch_dir = 1;
+	for (; ;) {
+		for (uint32_t d = 0; d < 8; d++) {
+			leds::set_ring(d, gamma_curve[((eeprom_settings.ring_color>>16)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.ring_color>> 8)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.ring_color>> 0)&0xFF)]);
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds::set_bird(d, gamma_curve[(((eeprom_settings.bird_color>>16)&0xFF)*rgb_walk)/256],
+					 		  gamma_curve[(((eeprom_settings.bird_color>> 8)&0xFF)*rgb_walk)/256],
+					 		  gamma_curve[(((eeprom_settings.bird_color>> 0)&0xFF)*rgb_walk)/256]);
+		}
+
+		rgb_walk += switch_dir;
+		if (rgb_walk >= 256) {
+			rgb_walk = 255;
+			switch_dir *= -1;
+		}
+		if (rgb_walk < 0) {
+			rgb_walk = 0;
+			switch_dir *= -1;
+		}
+
+		delay(8);
+		spi::push_frame();
+		if (test_button()) {
+			return;
+		}
+	}
+}
+
+static void brilliance() {
+	int32_t current_wait = 0;
+	int32_t wait_time = 0;
+	int32_t rgb_walk = 0;
+	int32_t switch_dir = 1;
+	for (; ;) {
+		rgb_color gradient[256];
+		for (int32_t c = 0; c < 112; c++) {
+			uint32_t r = (eeprom_settings.bird_color>>16)&0xFF;
+			uint32_t g = (eeprom_settings.bird_color>> 8)&0xFF;
+			uint32_t b = (eeprom_settings.bird_color>> 0)&0xFF;
+			gradient[c] = rgb_color(r, g, b);
+		}
+		for (int32_t c = 0; c < 16; c++) {
+			uint32_t r = max((eeprom_settings.bird_color>>16)&0xFF,c*8);
+			uint32_t g = max((eeprom_settings.bird_color>> 8)&0xFF,c*8);
+			uint32_t b = max((eeprom_settings.bird_color>> 0)&0xFF,c*8);
+			gradient[c+112] = rgb_color(r, g, b);
+		}
+		for (int32_t c = 0; c < 16; c++) {
+			uint32_t r = max((eeprom_settings.bird_color>>16)&0xFF,(16-c)*8);
+			uint32_t g = max((eeprom_settings.bird_color>> 8)&0xFF,(16-c)*8);
+			uint32_t b = max((eeprom_settings.bird_color>> 0)&0xFF,(16-c)*8);
+			gradient[c+128] = rgb_color(r, g, b);
+		}
+		for (int32_t c = 0; c < 112; c++) {
+			uint32_t r = (eeprom_settings.bird_color>>16)&0xFF;
+			uint32_t g = (eeprom_settings.bird_color>> 8)&0xFF;
+			uint32_t b = (eeprom_settings.bird_color>> 0)&0xFF;
+			gradient[c+144] = rgb_color(r, g, b);
+		}
+
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds::set_ring(d, gamma_curve[((eeprom_settings.ring_color>>16)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.ring_color>> 8)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.ring_color>> 0)&0xFF)]);
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			rgb_color color = gradient[((rgb_walk+ 0))%256];
+			leds::set_bird(d, gamma_curve[((color.red)&0xFF)], 
+							  gamma_curve[((color.green)&0xFF)], 
+							  gamma_curve[((color.blue)&0xFF)]);
+		}
+
+		rgb_walk += switch_dir;
+		if (rgb_walk >= 256) {
+			current_wait++;
+			if (current_wait > wait_time) {
+				wait_time = random.get(0,2000);
+				rgb_walk = 0;
+				current_wait = 0;
+			} else {
+				rgb_walk = 255;
+			}
+		}
+
+		delay(10);
+		spi::push_frame();
+		if (test_button()) {
+			return;
+		}
+	}
+}
+
+static void tingling() {
+	#define NUM_TINGLES 16
+	struct tingle {
+		bool active;
+		int32_t wait;
+		int32_t index;
+		int32_t progress;
+		bool lightordark;
+	} tingles[NUM_TINGLES] = {0};
+
+	for (; ;) {
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds::set_ring(d, gamma_curve[((eeprom_settings.ring_color>>16)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.ring_color>> 8)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.ring_color>> 0)&0xFF)]);
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds::set_bird(d, gamma_curve[((eeprom_settings.bird_color>>16)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.bird_color>> 8)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.bird_color>> 0)&0xFF)]);
+		}
+
+		for (int32_t c = 0 ; c < NUM_TINGLES; c++) {
+			if (tingles[c].active == 0) {
+				tingles[c].wait = random.get(0,25);
+				for (;;) {
+					bool done = true;
+					tingles[c].index = random.get(0,16);
+					for (int32_t d = 0 ; d < NUM_TINGLES; d++) {
+						if( d != c && 
+							tingles[c].active && 
+							tingles[c].index == tingles[d].index) {
+							done = false;
+							break;
+						}
+					}
+					if (done) {
+						break;
+					}
+				}
+				tingles[c].index = random.get(0,16);
+				tingles[c].progress = 0;
+				tingles[c].lightordark = random.get(0,2);
+				tingles[c].active = 1;
+			} else if (tingles[c].progress >= 16) {
+				tingles[c].active = 0;
+			} else if (tingles[c].wait > 0) {
+				tingles[c].wait --;
+			} else {
+				int32_t r = 0,g = 0,b = 0;
+				int32_t progress = tingles[c].progress;
+				if (progress > 8) {
+					progress -= 8;
+					progress = 8 - progress;
+				}
+				if (tingles[c].lightordark) {
+					r = max((eeprom_settings.ring_color>>16)&0xFF,progress*8);
+					g = max((eeprom_settings.ring_color>> 8)&0xFF,progress*8);
+					b = max((eeprom_settings.ring_color>> 0)&0xFF,progress*8);					
+				} else {
+					r = ((eeprom_settings.ring_color>>16)&0xFF)-progress*8;
+					g = ((eeprom_settings.ring_color>> 8)&0xFF)-progress*8;
+					b = ((eeprom_settings.ring_color>> 0)&0xFF)-progress*8;
+					r = max(r,0);
+					g = max(g,0);
+					b = max(b,0);					
+				}
+				leds::set_ring_all(tingles[c].index, gamma_curve[r], 
+								  				 gamma_curve[g], 
+								  				 gamma_curve[b]);
+				tingles[c].progress++;
+			}
+		}
+
+		delay(20);
+		spi::push_frame();
+		if (test_button()) {
+			return;
+		}
+	}
+}
+
+
+static void twinkle() {
+	#define NUM_TWINKLE 3
+	struct tingle {
+		bool active;
+		int32_t wait;
+		int32_t index;
+		int32_t progress;
+	} tingles[NUM_TWINKLE] = {0};
+
+	for (; ;) {
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds::set_ring(d, gamma_curve[((eeprom_settings.ring_color>>16)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.ring_color>> 8)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.ring_color>> 0)&0xFF)]);
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds::set_bird(d, gamma_curve[((eeprom_settings.bird_color>>16)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.bird_color>> 8)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.bird_color>> 0)&0xFF)]);
+		}
+
+		for (int32_t c = 0 ; c < NUM_TWINKLE; c++) {
+			if (tingles[c].active == 0) {
+				tingles[c].wait = random.get(0,50);
+				for (;;) {
+					bool done = true;
+					tingles[c].index = random.get(0,16);
+					for (int32_t d = 0 ; d < NUM_TWINKLE; d++) {
+						if( d != c && 
+							tingles[c].active && 
+							tingles[c].index == tingles[d].index) {
+							done = false;
+							break;
+						}
+					}
+					if (done) {
+						break;
+					}
+				}
+				tingles[c].index = random.get(0,16);
+				tingles[c].progress = 0;
+				tingles[c].active = 1;
+			} else if (tingles[c].progress >= 16) {
+				tingles[c].active = 0;
+			} else if (tingles[c].wait > 0) {
+				tingles[c].wait --;
+			} else {
+				int32_t r = 0,g = 0,b = 0;
+				int32_t progress = tingles[c].progress;
+				if (progress > 8) {
+					progress -= 8;
+					progress = 8 - progress;
+				}
+
+				r = max((eeprom_settings.ring_color>>16)&0xFF,progress*16);
+				g = max((eeprom_settings.ring_color>> 8)&0xFF,progress*16);
+				b = max((eeprom_settings.ring_color>> 0)&0xFF,progress*16);					
+				leds::set_ring_all(tingles[c].index, gamma_curve[r], 
+								  				 gamma_curve[g], 
+								  				 gamma_curve[b]);
+				tingles[c].progress++;
+			}
+		}
+
+		delay(50);
+		spi::push_frame();
+		if (test_button()) {
+			return;
+		}
+	}
+}
+
+static void simple_change_ring() {
+
+	int32_t color_index = -1;
+
+	int32_t index = 0;
+
+	int32_t r = random.get(0x00,0x40);
+	int32_t g = random.get(0x00,0x40);
+	int32_t b = random.get(0x00,0x40);
+	int32_t cr = 0;
+	int32_t cg = 0;
+	int32_t cb = 0;
+	int32_t nr = 0;
+	int32_t ng = 0;
+	int32_t nb = 0;
+
+	for (; ;) {
+
+		if (index >= 600) {
+			if (index == 600) {
+				cr = r;
+				cg = g;
+				cb = b;
+				nr = random.get(0x00,0x40);
+				ng = random.get(0x00,0x40);
+				nb = random.get(0x00,0x40);
+			}
+			if (index >= 664) {
+				index = 0;
+			} else {
+				int32_t lft = index-600;
+				int32_t rgt = 64-lft;
+				r = (nr*lft + cr*rgt) / 64;
+				g = (ng*lft + cg*rgt) / 64;
+				b = (nb*lft + cb*rgt) / 64;
+				index++;
+			}
+		} else {
+			index++;
+		}
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds::set_ring(d, gamma_curve[r],
+					 		  gamma_curve[g],
+					 		  gamma_curve[b]);
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds::set_bird(d, gamma_curve[((eeprom_settings.bird_color>>16)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.bird_color>> 8)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.bird_color>> 0)&0xFF)]);
+		}
+
+		delay(15);
+		spi::push_frame();
+		if (test_button()) {
+			return;
+		}
+	}
+}
+
+static void simple_change_bird() {
+
+	int32_t color_index = -1;
+
+	int32_t index = 0;
+
+	int32_t r = random.get(0x00,0x40);
+	int32_t g = random.get(0x00,0x40);
+	int32_t b = random.get(0x00,0x40);
+	int32_t cr = 0;
+	int32_t cg = 0;
+	int32_t cb = 0;
+	int32_t nr = 0;
+	int32_t ng = 0;
+	int32_t nb = 0;
+
+	for (; ;) {
+
+		if (index >= 600) {
+			if (index == 600) {
+				cr = r;
+				cg = g;
+				cb = b;
+				nr = random.get(0x00,0x40);
+				ng = random.get(0x00,0x40);
+				nb = random.get(0x00,0x40);
+			}
+			if (index >= 664) {
+				index = 0;
+			} else {
+				int32_t lft = index-600;
+				int32_t rgt = 64-lft;
+				r = (nr*lft + cr*rgt) / 64;
+				g = (ng*lft + cg*rgt) / 64;
+				b = (nb*lft + cb*rgt) / 64;
+				index++;
+			}
+		} else {
+			index++;
+		}
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds::set_ring(d, gamma_curve[((eeprom_settings.ring_color>>16)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.ring_color>> 8)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.ring_color>> 0)&0xFF)]);
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds::set_bird(d, gamma_curve[r],
+					 		  gamma_curve[g],
+					 		  gamma_curve[b]);
+		}
+
+		delay(15);
+		spi::push_frame();
+		if (test_button()) {
+			return;
+		}
+	}
+}
+
+static void simple_random() {
+
+	rgb_color colors[16];
+	for (int32_t c = 0; c<16; c++) {
+		colors[c].red = random.get(0x00,0x40);
+		colors[c].green = random.get(0x00,0x40);
+		colors[c].blue = random.get(0x00,0x40);
+	}
+
+	for (; ;) {
+
+		uint32_t index = random.get(0x00,0x10);
+		colors[index].red = random.get(0x00,0x40);
+		colors[index].green = random.get(0x00,0x40);
+		colors[index].blue = random.get(0x00,0x40);
+
+		for (uint32_t d = 0; d < 16; d++) {
+			leds::set_ring_all(d, gamma_curve[colors[d].red],
+					 		      gamma_curve[colors[d].green],
+					 		      gamma_curve[colors[d].blue]);
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds::set_bird(d, gamma_curve[((eeprom_settings.bird_color>>16)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.bird_color>> 8)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.bird_color>> 0)&0xFF)]);
+		}
+
+		delay(20);
+		spi::push_frame();
+		if (test_button()) {
+			return;
+		}
+	}
+}
+
+static void diagonal_wipe() {
+
+	int32_t walk = 0;
+	int32_t wait = random.get(60,1500);
+	int32_t dir = random.get(0,2);
+
+	for (; ;) {
+		for (uint32_t d = 0; d < 8; d++) {
+			leds::set_ring(d, gamma_curve[((eeprom_settings.ring_color>>16)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.ring_color>> 8)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.ring_color>> 0)&0xFF)]);
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds::set_bird(d, gamma_curve[((eeprom_settings.bird_color>>16)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.bird_color>> 8)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.bird_color>> 0)&0xFF)]);
+		}
+
+		int32_t i0 = -1;
+		int32_t i1 = -1;
+
+		if (dir) {
+			if (walk < 10) {
+				i0 = 7;
+				i1 = 7;
+			} else if (walk < 20) {
+				i0 = 0;
+				i1 = 6;
+			} else if (walk < 30) {
+				i0 = 1;
+				i1 = 5;
+			} else if (walk < 40) {
+				i0 = 2;
+				i1 = 4;
+			} else if (walk < 50) {
+				i0 = 3;
+				i1 = 3;
+			} else {
+				i0 = -1;
+				i1 = -1;
+			}	
+		} else {
+			if (walk < 10) {
+				i0 = 1;
+				i1 = 1;
+			} else if (walk < 20) {
+				i0 = 0;
+				i1 = 2;
+			} else if (walk < 30) {
+				i0 = 7;
+				i1 = 3;
+			} else if (walk < 40) {
+				i0 = 6;
+				i1 = 4;
+			} else if (walk < 50) {
+				i0 = 5;
+				i1 = 5;
+			} else {
+				i0 = -1;
+				i1 = -1;
+			}	
+		}
+		
+		walk ++;
+		if (walk > wait) {
+			walk = 0;
+			wait = random.get(60,1024);
+			dir = random.get(0,2);
+		}
+
+		if (i0 >= 0) leds::set_ring_synced(i0, 0x40,0x40,0x40);
+		if (i1 >= 0) leds::set_ring_synced(i1, 0x40,0x40,0x40);
+
+		delay(5);
+		spi::push_frame();
+		if (test_button()) {
+			return;
+		}
+	}
+}
+
+static void shimmer_outside() {
+	int32_t walk = 0;
+	int32_t wait = random.get(16,64);
+	int32_t dir = random.get(0,2);
+
+	for (; ;) {
+
+		rgb_color color = rgb_color(((eeprom_settings.ring_color>>16)&0xFF),
+								  ((eeprom_settings.ring_color>> 8)&0xFF),
+								  ((eeprom_settings.ring_color>> 0)&0xFF));
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds::set_bird(d, gamma_curve[((eeprom_settings.bird_color>>16)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.bird_color>> 8)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.bird_color>> 0)&0xFF)]);
+		}
+
+		int32_t r = color.red;
+		int32_t g = color.green;
+		int32_t b = color.blue;
+		if (walk < 8) {
+			r = max(int32_t(0),r - int32_t(walk));
+			g = max(int32_t(0),g - int32_t(walk));
+			b = max(int32_t(0),b - int32_t(walk));
+		} else if (walk < 16) {
+			r = max(int32_t(0),r - int32_t((8-(walk-8))));
+			g = max(int32_t(0),g - int32_t((8-(walk-8))));
+			b = max(int32_t(0),b - int32_t((8-(walk-8))));
+		}
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds::set_ring(d, gamma_curve[r],
+					 		  gamma_curve[g],
+					 		  gamma_curve[b]);
+		}
+		
+		walk ++;
+		if (walk > wait) {
+			walk = 0;
+			wait = random.get(16,64);
+
+		}
+
+		delay(2);
+		spi::push_frame();
+		if (test_button()) {
+			return;
+		}
+	}
+}
+
+static void shimmer_inside() {
+	int32_t walk = 0;
+	int32_t wait = random.get(16,64);
+	int32_t dir = random.get(0,2);
+
+	for (; ;) {
+
+		rgb_color color = rgb_color(((eeprom_settings.bird_color>>16)&0xFF),
+								    ((eeprom_settings.bird_color>> 8)&0xFF),
+								    ((eeprom_settings.bird_color>> 0)&0xFF));
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds::set_ring(d, gamma_curve[((eeprom_settings.ring_color>>16)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.ring_color>> 8)&0xFF)],
+					 		  gamma_curve[((eeprom_settings.ring_color>> 0)&0xFF)]);
+		}
+
+		int32_t r = color.red;
+		int32_t g = color.green;
+		int32_t b = color.blue;
+		if (walk < 8) {
+			r = max(int32_t(0),r - int32_t(walk));
+			g = max(int32_t(0),g - int32_t(walk));
+			b = max(int32_t(0),b - int32_t(walk));
+		} else if (walk < 16) {
+			r = max(int32_t(0),r - int32_t((8-(walk-8))));
+			g = max(int32_t(0),g - int32_t((8-(walk-8))));
+			b = max(int32_t(0),b - int32_t((8-(walk-8))));
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds::set_bird(d, gamma_curve[r],
+					 		  gamma_curve[g],
+					 		  gamma_curve[b]);
+		}
+		
+		walk ++;
+		if (walk > wait) {
+			walk = 0;
+			wait = random.get(16,64);
+
+		}
+
+		delay(10);
+		spi::push_frame();
+		if (test_button()) {
+			return;
+		}
+	}
+}
+
+static void red() {
+
+	int32_t wait = 1200;
+
+	int32_t index = 0;
+
+	int32_t br = ((eeprom_settings.bird_color>>16)&0xFF);
+	int32_t bg = ((eeprom_settings.bird_color>> 8)&0xFF);
+	int32_t bb = ((eeprom_settings.bird_color>> 0)&0xFF);
+
+	int32_t rr = ((eeprom_settings.ring_color>>16)&0xFF);
+	int32_t rg = ((eeprom_settings.ring_color>> 8)&0xFF);
+	int32_t rb = ((eeprom_settings.ring_color>> 0)&0xFF);
+
+	int32_t b1r = br;
+	int32_t b1g = bg;
+	int32_t b1b = bb;
+
+	int32_t r1r = rr;
+	int32_t r1g = rg;
+	int32_t r1b = rb;
+
+	for (; ;) {
+
+		if (index >= 0) {
+			if (index >= wait) {
+				wait = random.get(1200,10000);
+				index = 0;
+			} else if (index >= 0 && index < 64) {
+				int32_t rgt = index-0;
+				int32_t lft = 64-rgt;
+				b1r = (br*lft + 0x40*rgt) / 64;
+				b1g = (bg*lft + 0x00*rgt) / 64;
+				b1b = (bb*lft + 0x10*rgt) / 64;
+				r1r = (rr*lft + 0x40*rgt) / 64;
+				r1g = (rg*lft + 0x00*rgt) / 64;
+				r1b = (rb*lft + 0x10*rgt) / 64;
+				index++;
+			} else if (index >= 600 && index < 664) {
+				int32_t lft = index-600;
+				int32_t rgt = 64-lft;
+				b1r = (br*lft + 0x40*rgt) / 64;
+				b1g = (bg*lft + 0x00*rgt) / 64;
+				b1b = (bb*lft + 0x10*rgt) / 64;
+				r1r = (rr*lft + 0x40*rgt) / 64;
+				r1g = (rg*lft + 0x00*rgt) / 64;
+				r1b = (rb*lft + 0x10*rgt) / 64;
+				index++;
+			} else {
+				index++;
+			}
+		} else {
+			index++;
+		}
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds::set_ring(d, gamma_curve[r1r],
+					 		  gamma_curve[r1g],
+					 		  gamma_curve[r1b]);
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds::set_bird(d, gamma_curve[b1r],
+					 		  gamma_curve[b1g],
+					 		  gamma_curve[b1b]);
+		}
+
+		delay(20);
+		spi::push_frame();
+		if (test_button()) {
+			return;
+		}
+	}
+}
+
 #ifndef NO_SX1280
 class SX1280 {
 	public:
-			// Customization
-			
-			const uint32_t BUSY_PIN = 0x0000;
-			const uint32_t DIO1_PIN = 0x0008;
-			const uint32_t DIO2_PIN = 0x0115;
-			const uint32_t DIO3_PIN = 0x011F;
-			
-			const IRQn_Type INT_IRQn = PIN_INT0_IRQn;
-			const uint32_t INT_NUM = 0;
-			const uint32_t INT_CHN = PININTCH0;
-
-			// Standard values
-
-			const uint32_t AUTO_TX_OFFSET = 0x21;
-			const uint32_t MASK_RANGINGMUXSEL = 0xCF;
-			const uint32_t DEFAULT_RANGING_FILTER_SIZE = 0x7F;
-			const uint32_t MASK_FORCE_PREAMBLELENGTH = 0x8F;
-			const uint32_t BLE_ADVERTIZER_ACCESS_ADDRESS = 0x8E89BED6;
-
 			enum {
 				REG_LR_FIRMWARE_VERSION_MSB             = 0x0153,
 				REG_LR_PACKETPARAMS                     = 0x0903,
@@ -693,13 +2393,62 @@ class SX1280 {
 				uint16_t PeriodBaseCount;
 			} TickTime;
 
-			SX1280() { }
+			// Customization
+			//#define GFSK_SUPPORT
+			//#define FLRC_SUPPORT
+			//#define BLE_SUPPORT
+			#define RANGING_SUPPORT
+			#define LORA_SUPPORT
+			
+			const uint32_t BUSY_PIN = 0x0000;
+			const uint32_t DIO1_PIN = 0x0008;
+			const uint32_t DIO2_PIN = 0x0115;
+			const uint32_t DIO3_PIN = 0x011F;
+			const uint32_t RESET_PIN = 0x011F;
+			
+			const IRQn_Type INT_IRQn = PIN_INT0_IRQn;
+			const uint32_t INT_NUM = 0;
+			const uint32_t INT_CHN = PININTCH0;
+			
+			const uint32_t LORA_BUFFER_SIZE = 30;
+			uint8_t txBuffer[30] = { 0 };
+			uint8_t rxBuffer[30] = { 0 };
+			
+			const uint32_t RF_FREQUENCY = 2425000000UL;
+			const uint32_t TX_OUTPUT_POWER = 13;
 
-			void Delay(int32_t ms) const {
-				for (volatile uint32_t i = 0; i < ms*2400; i++) {}
-			}
+			const uint16_t TX_TIMEOUT_VALUE = 100; // ms
+			const uint16_t RX_TIMEOUT_VALUE = 0xffff; // ms
+			const RadioTickSizes RX_TIMEOUT_TICK_SIZE = RADIO_TICK_SIZE_1000_US;
+
+			const uint16_t IrqMask = IRQ_TX_DONE | IRQ_RX_DONE | IRQ_RX_TX_TIMEOUT;
+
+			// Standard values
+
+			const uint32_t AUTO_TX_OFFSET = 0x21;
+			const uint32_t MASK_RANGINGMUXSEL = 0xCF;
+			const uint32_t DEFAULT_RANGING_FILTER_SIZE = 0x7F;
+			const uint32_t MASK_FORCE_PREAMBLELENGTH = 0x8F;
+			const uint32_t BLE_ADVERTIZER_ACCESS_ADDRESS = 0x8E89BED6;
+
+			SX1280() { }
 			
 			void Init(bool pollMode) {
+
+				Chip_IOCON_PinMuxSet(LPC_IOCON, (BUSY_PIN>>8), (BUSY_PIN&0xFF), IOCON_FUNC0 | IOCON_MODE_PULLUP);
+				Chip_GPIO_SetPinDIRInput(LPC_GPIO, (BUSY_PIN>>8), (BUSY_PIN&0xFF));
+				
+				Chip_IOCON_PinMuxSet(LPC_IOCON, (DIO1_PIN>>8), (DIO1_PIN&0xFF), IOCON_FUNC0 | IOCON_MODE_PULLUP);
+				Chip_GPIO_SetPinDIRInput(LPC_GPIO, (DIO1_PIN>>8), (DIO1_PIN&0xFF));
+
+				Chip_IOCON_PinMuxSet(LPC_IOCON, (DIO2_PIN>>8), (DIO2_PIN&0xFF), IOCON_FUNC0 | IOCON_MODE_PULLUP);
+				Chip_GPIO_SetPinDIRInput(LPC_GPIO, (DIO2_PIN>>8), (DIO2_PIN&0xFF));
+
+				Chip_IOCON_PinMuxSet(LPC_IOCON, (DIO3_PIN>>8), (DIO3_PIN&0xFF), IOCON_FUNC0 | IOCON_MODE_PULLUP);
+				Chip_GPIO_SetPinDIRInput(LPC_GPIO, (DIO3_PIN>>8), (DIO3_PIN&0xFF));
+				
+				Chip_IOCON_PinMuxSet(LPC_IOCON, (RESET_PIN>>8), (RESET_PIN&0xFF), IOCON_FUNC0 | IOCON_MODE_PULLUP);
+				Chip_GPIO_SetPinDIRInput(LPC_GPIO, (RESET_PIN>>8), (RESET_PIN&0xFF));
 			
 				if (!pollMode) {
 					Chip_PININT_SetPinModeEdge(LPC_PININT, INT_CHN);
@@ -727,22 +2476,51 @@ class SX1280 {
 
 				// After this point, the UART is running standard mode: 8 data bit, 1 even
 				// parity bit, 1 stop bit, 115200 baud, LSB first
-				Delay( 10 );
+				delay( 10 );
 				
 				Wakeup();
+
+				SetStandby( STDBY_RC );
+
+				ModulationParams modulationParams;
+				modulationParams.PacketType                  = PACKET_TYPE_LORA;
+				modulationParams.Params.LoRa.SpreadingFactor = LORA_SF5;
+				modulationParams.Params.LoRa.Bandwidth       = LORA_BW_0200;
+				modulationParams.Params.LoRa.CodingRate      = LORA_CR_LI_4_5;
+				SetPacketType( modulationParams.PacketType );
+				SetModulationParams( &modulationParams );
+	
+				PacketParams PacketParams;
+				PacketParams.PacketType                 	 = PACKET_TYPE_LORA;
+				PacketParams.Params.LoRa.PreambleLength      = 0x0C;
+				PacketParams.Params.LoRa.HeaderType          = LORA_PACKET_IMPLICIT;
+				PacketParams.Params.LoRa.PayloadLength       = LORA_BUFFER_SIZE;
+				PacketParams.Params.LoRa.Crc                 = LORA_CRC_ON;
+				PacketParams.Params.LoRa.InvertIQ            = LORA_IQ_NORMAL;
+				SetPacketParams( &PacketParams );
+
+				SetRfFrequency( RF_FREQUENCY );
+				SetBufferBaseAddresses( 0x00, 0x00 );
+				SetTxParams( TX_OUTPUT_POWER, RADIO_RAMP_20_US );
+				
+				SetDioIrqParams( SX1280::IrqMask, SX1280::IrqMask, IRQ_RADIO_NONE, IRQ_RADIO_NONE );
+
+		    	SetRx( ( TickTime ) { RX_TIMEOUT_TICK_SIZE, RX_TIMEOUT_VALUE } );
+			}
+			
+			void SendBuffer() {
+				SendPayload( txBuffer, LORA_BUFFER_SIZE, ( TickTime ) { RX_TIMEOUT_TICK_SIZE, TX_TIMEOUT_VALUE } ); 
 			}
 			
 			void Reset() {
 				disableIRQ();
-#if 0 // TODO
-				wait_ms( 20 );
-				RadioReset.output( );
-				RadioReset = 0;
-				wait_ms( 50 );
-				RadioReset = 1;
-				RadioReset.input( ); // Using the internal pull-up
-				wait_ms( 20 );
-#endif  // #if 0 // TODO
+				delay( 20 );
+				Chip_GPIO_SetPinDIROutput(LPC_GPIO, (RESET_PIN>>8), (RESET_PIN&0xFF));
+				Chip_GPIO_SetPinOutLow(LPC_GPIO, (RESET_PIN>>8), (RESET_PIN&0xFF));
+				delay( 50 );
+				Chip_GPIO_SetPinOutHigh(LPC_GPIO, (RESET_PIN>>8), (RESET_PIN&0xFF));
+				Chip_GPIO_SetPinDIRInput(LPC_GPIO, (RESET_PIN>>8), (RESET_PIN&0xFF));
+				delay( 20 );
 				enableIRQ();
 			}
 			
@@ -946,10 +2724,12 @@ class SX1280 {
 
 				// If the radio is doing ranging operations, then apply the specific calls
 				// prior to SetTx
+				#ifdef RANGING_SUPPORT
 				if( GetPacketType( true ) == PACKET_TYPE_RANGING )
 				{
 					SetRangingRole( RADIO_RANGING_ROLE_MASTER );
 				}
+				#endif  // #ifdef RANGING_SUPPORT
 				WriteCommand( RADIO_SET_TX, buf, 3 );
 				OperatingMode = MODE_TX;
 			}
@@ -965,10 +2745,12 @@ class SX1280 {
 
 				// If the radio is doing ranging operations, then apply the specific calls
 				// prior to SetRx
+				#ifdef RANGING_SUPPORT
 				if( GetPacketType( true ) == PACKET_TYPE_RANGING )
 				{
 					SetRangingRole( RADIO_RANGING_ROLE_SLAVE );
 				}
+				#endif  // #ifdef RANGING_SUPPORT
 				WriteCommand( RADIO_SET_RX, buf, 3 );
 				OperatingMode = MODE_RX;
 			}
@@ -1005,7 +2787,7 @@ class SX1280 {
 			void SetPacketType( RadioPacketTypes packetType )
 			{
 				// Save packet type internally to avoid questioning the radio
-				this->PacketType = packetType;
+				PacketType = packetType;
 
 				WriteCommand( RADIO_SET_PACKETTYPE, ( uint8_t* )&packetType, 1 );
 			}
@@ -1016,30 +2798,29 @@ class SX1280 {
 				if( returnLocalCopy == false )
 				{
 					ReadCommand( RADIO_GET_PACKETTYPE, ( uint8_t* )&packetType, 1 );
-					if( this->PacketType != packetType )
+					if( PacketType != packetType )
 					{
-						this->PacketType = packetType;
+						PacketType = packetType;
 					}
 				}
 				else
 				{
-					packetType = this->PacketType;
+					packetType = PacketType;
 				}
 				return packetType;
 			}
-
+			
 			void SetRfFrequency( uint32_t rfFrequency )
 			{
 				uint8_t buf[3];
 				uint32_t freq = 0;
 
-				const float XTAL_FREQ = 52000000.f;
-				const float FREQ_STEP = ( ( float )( XTAL_FREQ / 262144.f ) );
+				const uint64_t XTAL_FREQ = 52000000;
+				freq = uint32_t( (uint64_t(rfFrequency) * uint64_t(262144)) / uint64_t(XTAL_FREQ) );
 
-				freq = ( uint32_t )( ( float ) rfFrequency / ( float ) FREQ_STEP );
 				buf[0] = ( uint8_t )( ( freq >> 16 ) & 0xFF );
-				buf[1] = ( uint8_t )( ( freq >> 8 ) & 0xFF );
-				buf[2] = ( uint8_t )( freq & 0xFF );
+				buf[1] = ( uint8_t )( ( freq >> 8  ) & 0xFF );
+				buf[2] = ( uint8_t )( ( freq       ) & 0xFF );
 				WriteCommand( RADIO_SET_RFFREQUENCY, buf, 3 );
 			}
 
@@ -1075,35 +2856,43 @@ class SX1280 {
 
 				// Check if required configuration corresponds to the stored packet type
 				// If not, silently update radio packet type
-				if( this->PacketType != modParams->PacketType )
+				if( PacketType != modParams->PacketType )
 				{
-					this->SetPacketType( modParams->PacketType );
+					SetPacketType( modParams->PacketType );
 				}
 
 				switch( modParams->PacketType )
 				{
+				#ifdef GFSK_SUPPORT
 					case PACKET_TYPE_GFSK:
 						buf[0] = modParams->Params.Gfsk.BitrateBandwidth;
 						buf[1] = modParams->Params.Gfsk.ModulationIndex;
 						buf[2] = modParams->Params.Gfsk.ModulationShaping;
 						break;
+				#endif  // #ifdef GFSK_SUPPORT
+				#if defined(LORA_SUPPORT) || defined(RANGING_SUPPORT)
 					case PACKET_TYPE_LORA:
 					case PACKET_TYPE_RANGING:
 						buf[0] = modParams->Params.LoRa.SpreadingFactor;
 						buf[1] = modParams->Params.LoRa.Bandwidth;
 						buf[2] = modParams->Params.LoRa.CodingRate;
-						this->LoRaBandwidth = modParams->Params.LoRa.Bandwidth;
+						LoRaBandwidth = modParams->Params.LoRa.Bandwidth;
 						break;
+				#endif  // #if defined(LORA_SUPPORT) || defined(RANGING_SUPPORT)
+				#ifdef FLRC_SUPPORT
 					case PACKET_TYPE_FLRC:
 						buf[0] = modParams->Params.Flrc.BitrateBandwidth;
 						buf[1] = modParams->Params.Flrc.CodingRate;
 						buf[2] = modParams->Params.Flrc.ModulationShaping;
 						break;
+				#endif  // #ifdef FLRC_SUPPORT
+				#ifdef BLE_SUPPORT
 					case PACKET_TYPE_BLE:
 						buf[0] = modParams->Params.Ble.BitrateBandwidth;
 						buf[1] = modParams->Params.Ble.ModulationIndex;
 						buf[2] = modParams->Params.Ble.ModulationShaping;
 						break;
+				#endif  // #ifdef BLE_SUPPORT
 					case PACKET_TYPE_NONE:
 						buf[0] = 0;
 						buf[1] = 0;
@@ -1118,13 +2907,14 @@ class SX1280 {
 				uint8_t buf[7];
 				// Check if required configuration corresponds to the stored packet type
 				// If not, silently update radio packet type
-				if( this->PacketType != packetParams->PacketType )
+				if( PacketType != packetParams->PacketType )
 				{
-					this->SetPacketType( packetParams->PacketType );
+					SetPacketType( packetParams->PacketType );
 				}
 
 				switch( packetParams->PacketType )
 				{
+				#ifdef GFSK_SUPPORT
 					case PACKET_TYPE_GFSK:
 						buf[0] = packetParams->Params.Gfsk.PreambleLength;
 						buf[1] = packetParams->Params.Gfsk.SyncWordLength;
@@ -1134,6 +2924,8 @@ class SX1280 {
 						buf[5] = packetParams->Params.Gfsk.CrcLength;
 						buf[6] = packetParams->Params.Gfsk.Whitening;
 						break;
+				#endif  // #ifdef GFSK_SUPPORT
+				#if defined(LORA_SUPPORT) || defined(RANGING_SUPPORT)
 					case PACKET_TYPE_LORA:
 					case PACKET_TYPE_RANGING:
 						buf[0] = packetParams->Params.LoRa.PreambleLength;
@@ -1144,6 +2936,8 @@ class SX1280 {
 						buf[5] = 0;
 						buf[6] = 0;
 						break;
+				#endif  // #if defined(LORA_SUPPORT) || defined(RANGING_SUPPORT)
+				#ifdef FLRC_SUPPORT
 					case PACKET_TYPE_FLRC:
 						buf[0] = packetParams->Params.Flrc.PreambleLength;
 						buf[1] = packetParams->Params.Flrc.SyncWordLength;
@@ -1153,6 +2947,8 @@ class SX1280 {
 						buf[5] = packetParams->Params.Flrc.CrcLength;
 						buf[6] = packetParams->Params.Flrc.Whitening;
 						break;
+				#endif  // #ifdef FLRC_SUPPORT
+				#ifdef BLE_SUPPORT
 					case PACKET_TYPE_BLE:
 						buf[0] = packetParams->Params.Ble.ConnectionState;
 						buf[1] = packetParams->Params.Ble.CrcLength;
@@ -1162,6 +2958,7 @@ class SX1280 {
 						buf[5] = 0;
 						buf[6] = 0;
 						break;
+				#endif  // #ifdef BLE_SUPPORT
 					case PACKET_TYPE_NONE:
 						buf[0] = 0;
 						buf[1] = 0;
@@ -1177,7 +2974,7 @@ class SX1280 {
 
 			void ForcePreambleLength( RadioPreambleLengths preambleLength )
 			{
-				this->WriteRegister( REG_LR_PREAMBLELENGTH, ( this->ReadRegister( REG_LR_PREAMBLELENGTH ) & MASK_FORCE_PREAMBLELENGTH ) | preambleLength );
+				WriteRegister( REG_LR_PREAMBLELENGTH, ( ReadRegister( REG_LR_PREAMBLELENGTH ) & MASK_FORCE_PREAMBLELENGTH ) | preambleLength );
 			}
 
 			void GetRxBufferStatus( uint8_t *rxPayloadLength, uint8_t *rxStartBufferPointer )
@@ -1215,6 +3012,7 @@ class SX1280 {
 				packetStatus->packetType = this -> GetPacketType( true );
 				switch( packetStatus->packetType )
 				{
+				#ifdef GFSK_SUPPORT
 					case PACKET_TYPE_GFSK:
 						packetStatus->Gfsk.RssiSync = -( status[1] / 2 );
 
@@ -1231,13 +3029,15 @@ class SX1280 {
 
 						packetStatus->Gfsk.SyncAddrStatus = status[4] & 0x07;
 						break;
-
+				#endif  // #ifdef GFSK_SUPPORT
+				#if defined(LORA_SUPPORT) || defined(RANGING_SUPPORT)
 					case PACKET_TYPE_LORA:
 					case PACKET_TYPE_RANGING:
 						packetStatus->LoRa.RssiPkt = -( status[0] / 2 );
 						( status[1] < 128 ) ? ( packetStatus->LoRa.SnrPkt = status[1] / 4 ) : ( packetStatus->LoRa.SnrPkt = ( ( status[1] - 256 ) /4 ) );
 						break;
-
+				#endif  // #if defined(LORA_SUPPORT) || defined(RANGING_SUPPORT)
+				#ifdef FLRC_SUPPORT
 					case PACKET_TYPE_FLRC:
 						packetStatus->Flrc.RssiSync = -( status[1] / 2 );
 
@@ -1256,7 +3056,8 @@ class SX1280 {
 
 						packetStatus->Flrc.SyncAddrStatus = status[4] & 0x07;
 						break;
-
+				#endif  // #ifdef FLRC_SUPPORT
+				#ifdef BLE_SUPPORT
 					case PACKET_TYPE_BLE:
 						packetStatus->Ble.RssiSync =  -( status[1] / 2 );
 
@@ -1272,7 +3073,7 @@ class SX1280 {
 
 						packetStatus->Ble.SyncAddrStatus = status[4] & 0x07;
 						break;
-
+				#endif  // #ifdef BLE_SUPPORT
 					case PACKET_TYPE_NONE:
 						// In that specific case, we set everything in the packetStatus to zeros
 						// and reset the packet type accordingly
@@ -1381,7 +3182,7 @@ class SX1280 {
 				return 0;
 			}
 
-			void SendPayload( uint8_t *payload, uint8_t size, TickTime timeout, uint8_t offset )
+			void SendPayload( uint8_t *payload, uint8_t size, TickTime timeout, uint8_t offset = 0 )
 			{
 				SetPayload( payload, size, offset );
 				SetTx( timeout );
@@ -1394,6 +3195,7 @@ class SX1280 {
 
 				switch( GetPacketType( true ) )
 				{
+				#ifdef GFSK_SUPPORT
 					case PACKET_TYPE_GFSK:
 						syncwordSize = 5;
 						switch( syncWordIdx )
@@ -1411,6 +3213,8 @@ class SX1280 {
 								return 1;
 						}
 						break;
+				#endif  // #ifdef GFSK_SUPPORT
+				#ifdef FLRC_SUPPORT
 					case PACKET_TYPE_FLRC:
 						// For FLRC packet type, the SyncWord is one byte shorter and
 						// the base address is shifted by one byte
@@ -1430,6 +3234,8 @@ class SX1280 {
 								return 1;
 						}
 						break;
+				#endif  // #ifdef FLRC_SUPPORT
+				#ifdef BLE_SUPPORT
 					case PACKET_TYPE_BLE:
 						// For Ble packet type, only the first SyncWord is used and its
 						// address is shifted by one byte
@@ -1443,6 +3249,7 @@ class SX1280 {
 								return 1;
 						}
 						break;
+				#endif  // #ifdef BLE_SUPPORT
 					default:
 						return 1;
 				}
@@ -1461,35 +3268,41 @@ class SX1280 {
 				uint8_t updated = 0;
 				switch( GetPacketType( true ) )
 				{
+				#if defined(GFSK_SUPPORT) || defined(FLRC_SUPPORT)
 					case PACKET_TYPE_GFSK:
 					case PACKET_TYPE_FLRC:
 						WriteRegister( REG_LR_CRCSEEDBASEADDR, seed, 2 );
 						updated = 1;
 						break;
+				#endif  // #if defined(GFSK_SUPPORT) || defined(FLRC_SUPPORT)
+				#ifdef BLE_SUPPORT
 					case PACKET_TYPE_BLE:
-						this->WriteRegister(0x9c7, seed[2] );
-						this->WriteRegister(0x9c8, seed[1] );
-						this->WriteRegister(0x9c9, seed[0] );
+						WriteRegister(0x9c7, seed[2] );
+						WriteRegister(0x9c8, seed[1] );
+						WriteRegister(0x9c9, seed[0] );
 						updated = 1;
 						break;
+				#endif  // #ifdef BLE_SUPPORT
 					default:
 						break;
 				}
 				return updated;
 			}
 
+			#ifdef BLE_SUPPORT
 			void SetBleAccessAddress( uint32_t accessAddress )
 			{
-				this->WriteRegister( REG_LR_BLE_ACCESS_ADDRESS, ( accessAddress >> 24 ) & 0x000000FF );
-				this->WriteRegister( REG_LR_BLE_ACCESS_ADDRESS + 1, ( accessAddress >> 16 ) & 0x000000FF );
-				this->WriteRegister( REG_LR_BLE_ACCESS_ADDRESS + 2, ( accessAddress >> 8 ) & 0x000000FF );
-				this->WriteRegister( REG_LR_BLE_ACCESS_ADDRESS + 3, accessAddress & 0x000000FF );
+				WriteRegister( REG_LR_BLE_ACCESS_ADDRESS, ( accessAddress >> 24 ) & 0x000000FF );
+				WriteRegister( REG_LR_BLE_ACCESS_ADDRESS + 1, ( accessAddress >> 16 ) & 0x000000FF );
+				WriteRegister( REG_LR_BLE_ACCESS_ADDRESS + 2, ( accessAddress >> 8 ) & 0x000000FF );
+				WriteRegister( REG_LR_BLE_ACCESS_ADDRESS + 3, accessAddress & 0x000000FF );
 			}
 
 			void SetBleAdvertizerAccessAddress( void )
 			{
-				this->SetBleAccessAddress( BLE_ADVERTIZER_ACCESS_ADDRESS );
+				SetBleAccessAddress( BLE_ADVERTIZER_ACCESS_ADDRESS );
 			}
+			#endif  // #ifdef BLE_SUPPORT
 
 			void SetCrcPolynomial( uint16_t polynomial )
 			{
@@ -1500,10 +3313,12 @@ class SX1280 {
 
 				switch( GetPacketType( true ) )
 				{
+				#if defined(GFSK_SUPPORT) || defined(FLRC_SUPPORT)
 					case PACKET_TYPE_GFSK:
 					case PACKET_TYPE_FLRC:
 						WriteRegister( REG_LR_CRCPOLYBASEADDR, val, 2 );
 						break;
+				#endif  // #if defined(GFSK_SUPPORT) || defined(FLRC_SUPPORT)
 					default:
 						break;
 				}
@@ -1513,16 +3328,19 @@ class SX1280 {
 			{
 				switch( GetPacketType( true ) )
 				{
+				#if defined(GFSK_SUPPORT) || defined(FLRC_SUPPORT) || defined(BLE_SUPPORT)
 					case PACKET_TYPE_GFSK:
 					case PACKET_TYPE_FLRC:
 					case PACKET_TYPE_BLE:
 						WriteRegister( REG_LR_WHITSEEDBASEADDR, seed );
 						break;
+				#endif  // #if defined(GFSK_SUPPORT) || defined(FLRC_SUPPORT) || defined(BLE_SUPPORT)
 					default:
 						break;
 				}
 			}
 
+			#ifdef RANGING_SUPPORT
 			void SetRangingIdLength( RadioRangingIdCheckLengths length )
 			{
 				switch( GetPacketType( true ) )
@@ -1571,11 +3389,11 @@ class SX1280 {
 				switch( GetPacketType( true ) )
 				{
 					case PACKET_TYPE_RANGING:
-						this->SetStandby( STDBY_XOSC );
-						this->WriteRegister( 0x97F, this->ReadRegister( 0x97F ) | ( 1 << 1 ) ); // enable LORA modem clock
+						SetStandby( STDBY_XOSC );
+						WriteRegister( 0x97F, ReadRegister( 0x97F ) | ( 1 << 1 ) ); // enable LORA modem clock
 						WriteRegister( REG_LR_RANGINGRESULTCONFIG, ( ReadRegister( REG_LR_RANGINGRESULTCONFIG ) & MASK_RANGINGMUXSEL ) | ( ( ( ( uint8_t )resultType ) & 0x03 ) << 4 ) );
 						valLsb = ( ( ReadRegister( REG_LR_RANGINGRESULTBASEADDR ) << 16 ) | ( ReadRegister( REG_LR_RANGINGRESULTBASEADDR + 1 ) << 8 ) | ( ReadRegister( REG_LR_RANGINGRESULTBASEADDR + 2 ) ) );
-						this->SetStandby( STDBY_RC );
+						SetStandby( STDBY_RC );
 
 						// Convertion from LSB to distance. For explanation on the formula, refer to Datasheet of SX1280
 						switch( resultType )
@@ -1586,7 +3404,7 @@ class SX1280 {
 								// distance [m] = ( complement2( register ) * 150 ) / ( 2^12 * bandwidth[MHz] ) )
 								// The API provide BW in [Hz] so the implemented formula is complement2( register ) / bandwidth[Hz] * A,
 								// where A = 150 / (2^12 / 1e6) = 36621.09
-								val = ( double )complement2( valLsb, 24 ) / ( double )this->GetLoRaBandwidth( ) * 36621.09375;
+								val = ( double )complement2( valLsb, 24 ) / ( double )GetLoRaBandwidth( ) * 36621.09375;
 								break;
 
 							case RANGING_RESULT_AVERAGED:
@@ -1639,6 +3457,7 @@ class SX1280 {
 				buf[0] = role;
 				WriteCommand( RADIO_SET_RANGING_ROLE, &buf[0], 1 );
 			}
+			#endif  // #ifdef RANGING_SUPPORT
 
 			double GetFrequencyError( )
 			{
@@ -1646,18 +3465,20 @@ class SX1280 {
 				uint32_t efe = 0;
 				double efeHz = 0.0;
 
-				switch( this->GetPacketType( true ) )
+				switch( GetPacketType( true ) )
 				{
+				#if defined(LORA_SUPPORT) || defined(RANGING_SUPPORT)
 					case PACKET_TYPE_LORA:
 					case PACKET_TYPE_RANGING:
-						efeRaw[0] = this->ReadRegister( REG_LR_ESTIMATED_FREQUENCY_ERROR_MSB );
-						efeRaw[1] = this->ReadRegister( REG_LR_ESTIMATED_FREQUENCY_ERROR_MSB + 1 );
-						efeRaw[2] = this->ReadRegister( REG_LR_ESTIMATED_FREQUENCY_ERROR_MSB + 2 );
+						efeRaw[0] = ReadRegister( REG_LR_ESTIMATED_FREQUENCY_ERROR_MSB );
+						efeRaw[1] = ReadRegister( REG_LR_ESTIMATED_FREQUENCY_ERROR_MSB + 1 );
+						efeRaw[2] = ReadRegister( REG_LR_ESTIMATED_FREQUENCY_ERROR_MSB + 2 );
 						efe = ( efeRaw[0]<<16 ) | ( efeRaw[1]<<8 ) | efeRaw[2];
 						efe &= REG_LR_ESTIMATED_FREQUENCY_ERROR_MASK;
 
-						efeHz = 1.55 * ( double )complement2( efe, 20 ) / ( 1600.0 / ( double )this->GetLoRaBandwidth( ) * 1000.0 );
+						efeHz = 1.55 * ( double )complement2( efe, 20 ) / ( 1600.0 / ( double )GetLoRaBandwidth( ) * 1000.0 );
 						break;
+				#endif  // #if defined(LORA_SUPPORT) || defined(RANGING_SUPPORT)
 
 					case PACKET_TYPE_NONE:
 					case PACKET_TYPE_BLE:
@@ -1671,14 +3492,15 @@ class SX1280 {
 
 			void SetPollingMode( void )
 			{
-				this->PollingMode = true;
+				PollingMode = true;
 			}
 
+			#ifdef LORA_SUPPORT
 			int32_t GetLoRaBandwidth( )
 			{
 				int32_t bwValue = 0;
 
-				switch( this->LoRaBandwidth ) {
+				switch( LoRaBandwidth ) {
 					case LORA_BW_0200:
 						bwValue = 203125;
 						break;
@@ -1696,10 +3518,11 @@ class SX1280 {
 				}
 				return bwValue;
 			}
+			#endif  // #ifdef LORA_SUPPORT
 
 			void SetInterruptMode( void )
 			{
-				this->PollingMode = false;
+				PollingMode = false;
 			}
 
 			void OnDioIrq( void )
@@ -1709,10 +3532,10 @@ class SX1280 {
 				 * ProcessIrqs( ). Otherwise, the driver automatically calls ProcessIrqs( )
 				 * on radio interrupt.
 				 */
-				if( this->PollingMode == true ) {
-					this->IrqState = true;
+				if( PollingMode == true ) {
+					IrqState = true;
 				} else {
-					this->ProcessIrqs( );
+					ProcessIrqs( );
 				}
 			}
 
@@ -1720,10 +3543,10 @@ class SX1280 {
 			{
 				RadioPacketTypes packetType = PACKET_TYPE_NONE;
 
-				if( this->PollingMode == true ) {
-					if( this->IrqState == true ) {
+				if( PollingMode == true ) {
+					if( IrqState == true ) {
 			            disableIRQ( );
-						this->IrqState = false;
+						IrqState = false;
 			            enableIRQ( );
 					} else {
 						return;
@@ -1736,6 +3559,7 @@ class SX1280 {
 
 				switch( packetType )
 				{
+				#if defined(GFSK_SUPPORT) || defined(FLRC_SUPPORT) || defined(BLE_SUPPORT)
 					case PACKET_TYPE_GFSK:
 					case PACKET_TYPE_FLRC:
 					case PACKET_TYPE_BLE:
@@ -1785,6 +3609,8 @@ class SX1280 {
 								break;
 						}
 						break;
+				#endif  // #if defined(GFSK_SUPPORT) || defined(FLRC_SUPPORT) || defined(BLE_SUPPORT)
+				#ifdef LORA_SUPPORT
 					case PACKET_TYPE_LORA:
 						switch( OperatingMode )
 						{
@@ -1849,6 +3675,8 @@ class SX1280 {
 								break;
 						}
 						break;
+				#endif  // #ifdef LORA_SUPPORT
+				#ifdef RANGING_SUPPORT
 					case PACKET_TYPE_RANGING:
 						switch( OperatingMode )
 						{
@@ -1895,6 +3723,7 @@ class SX1280 {
 								break;
 						}
 						break;
+				#endif  // #ifdef RANGING_SUPPORT
 					default:
 						// Unexpected IRQ: silently returns
 						break;
@@ -1906,7 +3735,10 @@ class SX1280 {
 			}
 
 			void rxDone() {
-				// TODO
+			    PacketStatus packetStatus;
+				GetPacketStatus(&packetStatus);
+				uint8_t rxBufferSize = 0;
+                GetPayload( rxBuffer, &rxBufferSize, LORA_BUFFER_SIZE );
 			}
 
 			void rxSyncWordDone() {
@@ -1967,11 +3799,11 @@ class SX1280 {
 				return retVal;
 			}
 
-    RadioOperatingModes OperatingMode = MODE_SLEEP;
-	RadioPacketTypes PacketType = PACKET_TYPE_NONE;
-    RadioLoRaBandwidths LoRaBandwidth = LORA_BW_0200;
-    bool IrqState = false;
-    bool PollingMode = true;
+    RadioOperatingModes 	OperatingMode = MODE_SLEEP;
+	RadioPacketTypes 		PacketType = PACKET_TYPE_NONE;
+    RadioLoRaBandwidths 	LoRaBandwidth = LORA_BW_0200;
+    bool 					IrqState = false;
+    bool 					PollingMode = true;
 
 } sx1280;
 
@@ -2003,7 +3835,7 @@ class SDD1306 {
 				}
 			}
 
-			void Delay(int32_t ms) const {
+			void delay(int32_t ms) const {
 				for (volatile uint32_t i = 0; i < ms*2400; i++) {}
 			}
 
@@ -2035,11 +3867,11 @@ class SDD1306 {
 
 				Chip_GPIO_SetPinState(LPC_GPIO, 1, 31, true);
 
-				Delay(1);
+				delay(1);
 
 				Chip_GPIO_SetPinState(LPC_GPIO, 1, 31, false);
 
-				Delay(10);
+				delay(10);
 
 				Chip_GPIO_SetPinState(LPC_GPIO, 1, 31, true);
 
@@ -2189,7 +4021,13 @@ class Setup {
 
 extern "C" {
 	void SysTick_Handler(void)
-	{
+	{	
+		system_clock_ms++;
+#ifndef NO_SX1280
+		if ( (system_clock_ms % 1024) == 0) {
+			sx1280.SendBuffer();
+		}
+#endif  // #ifndef NO_SX1280
 	}
 
 	void TIMER32_0_IRQHandler(void)
@@ -2219,15 +4057,125 @@ int main(void)
 	sx1280.Init(false);
 #endif  // #ifndef NO_SX1280
 
+	// 1s timer
+	SysTick_Config(SystemCoreClock / 1000);
+
+	eeprom_settings.load();
+
+	eeprom_settings.program_count = 27;
+
+	if (eeprom_settings.bird_color == 0 ||
+		eeprom_settings.bird_color_index > 16 ||
+		eeprom_settings.ring_color == 0 ||
+		eeprom_settings.ring_color_index > 16 ||
+		eeprom_settings.microphone_mode > 1 ) {
+	 	eeprom_settings.bird_color = 0x404000;
+		eeprom_settings.bird_color_index = 0;
+	 	eeprom_settings.ring_color = 0x083040;
+		eeprom_settings.ring_color_index = 0;
+		eeprom_settings.microphone_mode = 0;
+
+		eeprom_settings.save();
+	}
+	
+	random.init(0xCAFFE);
+
 	while (1) {
+
 		sdd1306.Display();
 		sdd1306.Clear(0x00);
-		sdd1306.Delay(200);
+		delay(200);
 		sdd1306.Display();
 		sdd1306.Clear(0xFF);
-		sdd1306.Delay(200);
-		//__WFI();
-	}
+		delay(200);
+
+		switch(eeprom_settings.program_curr) {
+			case	0:
+					color_ring();
+					break;
+			case	1:	
+					fade_ring();
+					break;
+			case	2:
+					rgb_walker();
+					break;
+			case	3:
+					rgb_glow();
+					break;
+			case	4:
+					rgb_tracer();
+					break;
+			case	5: 
+					ring_tracer();
+					break;
+			case	6:
+					light_tracer();
+					break;
+			case	7: 
+					ring_bar_rotate();
+					break;
+			case	8: 
+					ring_bar_move();
+					break;
+			case	9:
+					sparkle();
+					break;
+			case	10:
+					lightning();
+					break;
+			case	11:
+					lightning_crazy();
+					break;
+			case 	12:
+					rgb_vertical_wall();
+					break;
+			case 	13:
+					rgb_horizontal_wall();
+					break;
+			case	14:
+					shine_vertical();
+					break;
+			case	15:
+					shine_horizontal();
+					break;	
+			case 	16:
+					heartbeat();
+					break;
+			case 	17:
+					brilliance();
+					break;
+			case    18:
+					tingling();
+					break;
+			case    19:
+					twinkle();
+					break;
+			case	20:
+					simple_change_ring();
+					break;
+			case	21:
+					simple_change_bird();
+					break;
+			case	22:
+					simple_random();
+					break;
+			case	23:
+					diagonal_wipe();
+					break;
+			case	24:
+					shimmer_outside();
+					break;
+			case	25:
+					shimmer_inside();
+					break;
+			case	26:
+					red();
+					break;
+			default:
+					color_ring();
+					break;
+		}
+    }
 
 	return 0;
 }
