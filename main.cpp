@@ -199,9 +199,10 @@ static struct eeprom_settings {
 	void load() {
 		unsigned int param[5] = { 0 };
 		param[0] = 62; // Write EEPROM
-		param[0] = (uintptr_t)this;
-		param[0] = sizeof(eeprom_settings);
-		param[0] = SystemCoreClock;
+		param[1] = 0;
+		param[2] = (uintptr_t)this;
+		param[3] = sizeof(eeprom_settings);
+		param[4] = SystemCoreClock;
 		unsigned int result[4] = { 0 };
 		iap_entry(param, result);
 	}
@@ -209,9 +210,10 @@ static struct eeprom_settings {
 	void save() {
 		unsigned int param[5] = { 0 };
 		param[0] = 61; // Read EEPROM
-		param[0] = (uintptr_t)this;
-		param[0] = sizeof(eeprom_settings);
-		param[0] = SystemCoreClock;
+		param[1] = 0;
+		param[2] = (uintptr_t)this;
+		param[3] = sizeof(eeprom_settings);
+		param[4] = SystemCoreClock;
 		unsigned int result[4] = { 0 };
 		iap_entry(param, result);
 	}
