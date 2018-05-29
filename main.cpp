@@ -190,12 +190,6 @@ private:
 
 static struct eeprom_settings {
 
-// FIXME!!!
-//#define START_ADDR_LAST_SECTOR  0x00007C00
-//#define SECTOR_SIZE             1024
-//#define IAP_LAST_SECTOR         31
-//#define IAP_NUM_BYTES_TO_WRITE  64
-
 	eeprom_settings() {
 		program_count = 0;
 		program_curr = 0;
@@ -203,29 +197,23 @@ static struct eeprom_settings {
 	}
 
 	void load() {
-		// FIXME!!!
-//		uint32_t *src = ((uint32_t *)(START_ADDR_LAST_SECTOR));
-//		uint32_t *dst =  (uint32_t *)this;
-//		for (uint32_t x = 0; x < sizeof(eeprom_settings)/4; x++) {
-//			*dst++ = *src++;
-//		}
+		unsigned int param[5] = { 0 };
+		param[0] = 62; // Write EEPROM
+		param[0] = (uintptr_t)this;
+		param[0] = sizeof(eeprom_settings);
+		param[0] = SystemCoreClock;
+		unsigned int result[4] = { 0 };
+		iap_entry(param, result);
 	}
 
 	void save() {
-		// FIXME!!!
-//		uint32_t *src = ((uint32_t *)(START_ADDR_LAST_SECTOR));
-//		uint32_t *dst =  (uint32_t *)this;
-//		for (uint32_t x = 0; x < sizeof(eeprom_settings)/4; x++) {
-//			if (*dst++ != *src++) {
-//				__disable_irq();
-//				Chip_IAP_PreSectorForReadWrite(IAP_LAST_SECTOR, IAP_LAST_SECTOR);
-//				Chip_IAP_EraseSector(IAP_LAST_SECTOR, IAP_LAST_SECTOR);
-//				Chip_IAP_PreSectorForReadWrite(IAP_LAST_SECTOR, IAP_LAST_SECTOR);
-//				Chip_IAP_CopyRamToFlash(START_ADDR_LAST_SECTOR, (uint32_t *)this, IAP_NUM_BYTES_TO_WRITE);
-//				__enable_irq();
-//				return;
-//			}
-//		}
+		unsigned int param[5] = { 0 };
+		param[0] = 61; // Read EEPROM
+		param[0] = (uintptr_t)this;
+		param[0] = sizeof(eeprom_settings);
+		param[0] = SystemCoreClock;
+		unsigned int result[4] = { 0 };
+		iap_entry(param, result);
 	}
 
 	uint32_t program_count;
@@ -235,8 +223,6 @@ static struct eeprom_settings {
 	uint32_t bird_color_index;
 	uint32_t ring_color;
 	uint32_t ring_color_index;
-	uint32_t microphone_mode;
-
 } eeprom_settings;
 
 class spi;
@@ -306,16 +292,98 @@ uint8_t leds::led_data[TOTAL_LEDS*3] = { 0x00 } ;
 
 static class spi {
 public:
+	static const uint32_t BOTTOM_LED_MOSI0_PIN = 0x0009; // 0_9
+	static const uint32_t BOTTOM_LED_SCK0_PIN = 0x000A; // 0_10
+
+	static const uint32_t ALT_SCK0_PIN = 0x0006; // 0_6
+
+	static const uint32_t TOP_LED_MOSI1_PIN = 0x0116; // 1_22
+	static const uint32_t TOP_LED_SCK1_PIN = 0x010F; // 1_15
 
 	static void init() {
-		// FIXME!!!
+		// MOSI0
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (BOTTOM_LED_MOSI0_PIN>>8), (BOTTOM_LED_MOSI0_PIN&0xFF), IOCON_FUNC1);
+		// SCK0
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (BOTTOM_LED_SCK0_PIN>>8), (BOTTOM_LED_SCK0_PIN&0xFF), IOCON_FUNC2);
+
+		// Set to GPIO, shared with flash chip
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (ALT_SCK0_PIN>>8), (ALT_SCK0_PIN&0xFF), IOCON_FUNC0);
+		
+		// MOSI1
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (TOP_LED_MOSI1_PIN>>8), (TOP_LED_MOSI1_PIN&0xFF), IOCON_FUNC2);
+		// SCK1
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (TOP_LED_SCK1_PIN>>8), (TOP_LED_SCK1_PIN&0xFF), IOCON_FUNC3);
+
+		Chip_SSP_Init(LPC_SSP0);
+	    Chip_SSP_SetMaster(LPC_SSP0, 1);
+		Chip_SSP_SetClockRate(LPC_SSP0, 0, 8);
+		Chip_SSP_SetFormat(LPC_SSP0, SSP_BITS_8, SSP_FRAMEFORMAT_SPI, SSP_CLOCK_MODE0);
+		Chip_SSP_Enable(LPC_SSP1);
+
+	    Chip_SSP_SetMaster(LPC_SSP1, 1);
+		Chip_SSP_Init(LPC_SSP1);
+		Chip_SSP_SetClockRate(LPC_SSP1, 0, 8);
+		Chip_SSP_SetFormat(LPC_SSP1, SSP_BITS_8, SSP_FRAMEFORMAT_SPI, SSP_CLOCK_MODE0);
+		Chip_SSP_Enable(LPC_SSP1);
 	}
 
-	static void push_frame()  {
-		// FIXME!!!
+	static void push_frame(uint32_t brightness = 0x20)  {
+	
+		// SCK0
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (BOTTOM_LED_SCK0_PIN>>8), (BOTTOM_LED_SCK0_PIN&0xFF), IOCON_FUNC2);
+		// Set to GPIO
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (ALT_SCK0_PIN>>8), (ALT_SCK0_PIN&0xFF), IOCON_FUNC0);
+		// Set format again
+		Chip_SSP_SetClockRate(LPC_SSP0, 0, 8);
+		Chip_SSP_SetFormat(LPC_SSP0, SSP_BITS_8, SSP_FRAMEFORMAT_SPI, SSP_CLOCK_MODE0);
+
+		// Start frame
+		push_byte0(0);
+		push_byte0(0);
+		push_byte0(0);
+		push_byte0(0);
+
+		push_byte1(0);
+		push_byte1(0);
+		push_byte1(0);
+		push_byte1(0);
+
+		// Frame data
+		for (int32_t c=0; c<HALF_LEDS; c++) {
+			push_byte0(0xE0 | brightness);
+			push_byte0(leds::led_data[HALF_LEDS*0*3 + c*3+0]);
+			push_byte0(leds::led_data[HALF_LEDS*0*3 + c*3+1]);
+			push_byte0(leds::led_data[HALF_LEDS*0*3 + c*3+2]);
+
+			push_byte1(0xE0 | brightness);
+			push_byte1(leds::led_data[HALF_LEDS*1*3 + c*3+0]);
+			push_byte1(leds::led_data[HALF_LEDS*1*3 + c*3+1]);
+			push_byte1(leds::led_data[HALF_LEDS*1*3 + c*3+2]);
+		}
+		
+		// End frame
+		push_byte0(0xFF);
+		push_byte0(0xFF);
+		push_byte0(0xFF);
+		push_byte0(0xFF);
+
+		push_byte1(0xFF);
+		push_byte1(0xFF);
+		push_byte1(0xFF);
+		push_byte1(0xFF);
 	}
 
 private:
+	
+	static void push_byte0(uint8_t byte) {
+		while(!Chip_SSP_GetStatus(LPC_SSP0, SSP_STAT_TNF));
+		Chip_SSP_SendFrame(LPC_SSP0, byte);
+	}
+	
+	static void push_byte1(uint8_t byte) {
+		while(!Chip_SSP_GetStatus(LPC_SSP1, SSP_STAT_TNF));
+		Chip_SSP_SendFrame(LPC_SSP1, byte);
+	}
 
 } spi;
 
@@ -330,10 +398,6 @@ static void advance_mode(uint32_t mode) {
 				eeprom_settings.ring_color_index++; 
 				eeprom_settings.ring_color_index %= 20; 
 				eeprom_settings.ring_color = ring_colors[eeprom_settings.ring_color_index];
-				break;
-		case	2:
-				eeprom_settings.microphone_mode ++;
-				eeprom_settings.microphone_mode %= 2;
 				break;
 	}
 }
@@ -4067,14 +4131,11 @@ int main(void)
 	if (eeprom_settings.bird_color == 0 ||
 		eeprom_settings.bird_color_index > 16 ||
 		eeprom_settings.ring_color == 0 ||
-		eeprom_settings.ring_color_index > 16 ||
-		eeprom_settings.microphone_mode > 1 ) {
+		eeprom_settings.ring_color_index > 16 ) {
 	 	eeprom_settings.bird_color = 0x404000;
 		eeprom_settings.bird_color_index = 0;
 	 	eeprom_settings.ring_color = 0x083040;
 		eeprom_settings.ring_color_index = 0;
-		eeprom_settings.microphone_mode = 0;
-
 		eeprom_settings.save();
 	}
 	
