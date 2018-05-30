@@ -188,6 +188,84 @@ private:
 
 } random;
 
+static struct flash_access {
+
+	static const uint32_t FLASH_MOSI0_PIN = 0x0006; // 0_6
+	static const uint32_t FLASH_MISO0_PIN = 0x0009; // 0_9
+	static const uint32_t FLASH_SCK0_PIN = 0x000A; // 0_10
+	static const uint32_t FLASH_CSEL_PIN = 0x000A; // 0_10
+
+	static const uint32_t ALT_SCK0_PIN = 0x0009; // 0_9
+
+	flash_access() {
+		// CSEL
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (FLASH_CSEL_PIN>>8), (FLASH_CSEL_PIN&0xFF), IOCON_FUNC2);
+		// MISO0
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (FLASH_MISO0_PIN>>8), (FLASH_MISO0_PIN&0xFF), IOCON_FUNC2);
+		// SCK0
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (FLASH_SCK0_PIN>>8), (FLASH_SCK0_PIN&0xFF), IOCON_FUNC0);
+		// MOSI0
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (FLASH_MOSI0_PIN>>8), (FLASH_MOSI0_PIN&0xFF), IOCON_FUNC1);
+		// Set to GPIO, shared with leds
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (ALT_SCK0_PIN>>8), (ALT_SCK0_PIN&0xFF), IOCON_FUNC0);
+	}
+	
+	void read_data(uint32_t address, uint8_t *ptr, uint32_t size) {
+		// MOSI0
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (FLASH_MOSI0_PIN>>8), (FLASH_MOSI0_PIN&0xFF), IOCON_FUNC1);
+		// Set to GPIO, shared with leds
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (ALT_SCK0_PIN>>8), (ALT_SCK0_PIN&0xFF), IOCON_FUNC0);
+
+		// CSEL to low
+		Chip_GPIO_SetPinState(LPC_GPIO, (FLASH_CSEL_PIN>>8), (FLASH_CSEL_PIN&0xFF), false);
+
+		push_byte(0x03);
+		push_byte((address>>16)&0xFF);
+		push_byte((address>> 8)&0xFF);
+		push_byte((address>> 0)&0xFF);
+		
+		for (uint32_t c=0; c<size; c++) {
+			*ptr++ = read_byte();
+		}
+
+		// CSEL to high
+		Chip_GPIO_SetPinState(LPC_GPIO, (FLASH_CSEL_PIN>>8), (FLASH_CSEL_PIN&0xFF), true);
+	}
+
+	void write_data(uint32_t address, uint8_t *ptr, uint32_t size) {
+		// MOSI0
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (FLASH_MOSI0_PIN>>8), (FLASH_MOSI0_PIN&0xFF), IOCON_FUNC1);
+		// Set to GPIO, shared with leds
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (ALT_SCK0_PIN>>8), (ALT_SCK0_PIN&0xFF), IOCON_FUNC0);
+
+		// CSEL to low
+		Chip_GPIO_SetPinState(LPC_GPIO, (FLASH_CSEL_PIN>>8), (FLASH_CSEL_PIN&0xFF), false);
+
+		push_byte(0x02);
+		push_byte((address>>16)&0xFF);
+		push_byte((address>> 8)&0xFF);
+		push_byte((address>> 0)&0xFF);
+		
+		for (uint32_t c=0; c<size; c++) {
+			push_byte(*ptr++);
+		}
+
+		// CSEL to high
+		Chip_GPIO_SetPinState(LPC_GPIO, (FLASH_CSEL_PIN>>8), (FLASH_CSEL_PIN&0xFF), true);
+	}
+
+private:
+	static void push_byte(uint8_t byte) {
+		while(!Chip_SSP_GetStatus(LPC_SSP0, SSP_STAT_TNF));
+		Chip_SSP_SendFrame(LPC_SSP0, byte);
+	}
+
+	static uint8_t read_byte() {
+		while(!Chip_SSP_GetStatus(LPC_SSP0, SSP_STAT_RNE));
+		return Chip_SSP_ReceiveFrame(LPC_SSP0);
+	}
+} flash_access;
+
 static struct eeprom_settings {
 
 	eeprom_settings() {
@@ -333,7 +411,7 @@ public:
 	
 		// SCK0
 		Chip_IOCON_PinMuxSet(LPC_IOCON, (BOTTOM_LED_SCK0_PIN>>8), (BOTTOM_LED_SCK0_PIN&0xFF), IOCON_FUNC2);
-		// Set to GPIO
+		// Set to GPIO, shared with flash chip
 		Chip_IOCON_PinMuxSet(LPC_IOCON, (ALT_SCK0_PIN>>8), (ALT_SCK0_PIN&0xFF), IOCON_FUNC0);
 		// Set format again
 		Chip_SSP_SetClockRate(LPC_SSP0, 0, 8);
@@ -4105,6 +4183,8 @@ extern "C" {
 	}
 }
 
+static uint8_t screen_data[256] = { 0 };
+
 int main(void)
 {
 	SystemCoreClockUpdate();
@@ -4142,6 +4222,9 @@ int main(void)
 	}
 	
 	random.init(0xCAFFE);
+	
+	// Boot screen
+	flash_access.read_data(0, &screen_data[0], sizeof(screen_data));
 
 	while (1) {
 
