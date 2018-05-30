@@ -19,10 +19,13 @@
 #include "printf.h"
 #endif  // #ifdef NO_SX1280
 
-#define max(a,b) ((a)>(b)?(a):(b))
-#define min(a,b) ((a)<(b)?(a):(b))
-#define abs(a) ((a)<0?(-a):(a))
-#define constrain(x,a,b) ((x)>(b)?(b):(((x)<(a)?(a):(x))))
+
+namespace {
+
+template<class T> const T& max(const T &a, const T &b) { return (a>b) ? a : b; }
+template<class T> const T& min(const T &a, const T &b) { return (a<b) ? a : b; }
+template<class T> const T& abs(const T &a) { return (a<0) ? -a : a; }
+template<class T> const T& constrain(const T& x, const T &a, const T &b) { return (x>b)?b:((x<a)?a:x); }
 
 static volatile uint32_t system_clock_ms = 0;
 
@@ -103,7 +106,7 @@ static const uint8_t sine_wave[256] = {
 	0x67, 0x6A, 0x6D, 0x70, 0x74, 0x77, 0x7A, 0x7D
 };
 
-static uint32_t bird_colors[] = {
+static const uint32_t bird_colors[] = {
 	0x404000,
 	0x104020,
 	0x005010,
@@ -126,7 +129,7 @@ static uint32_t bird_colors[] = {
 	0x202020,
 };
 
-static uint32_t ring_colors[] = {
+static const uint32_t ring_colors[] = {
 	0x404000,
 	0x104020,
 	0x005010,
@@ -545,18 +548,18 @@ static void fade_ring() {
 	for (; ;) {
 		rgb_color color;
 		int32_t col = eeprom_settings.ring_color;
-		color = rgb_color(max(((col>>16)&0xFF)-0x20,0), max(((col>> 8)&0xFF)-0x20,0), max(((col>> 0)&0xFF)-0x20,0));
+		color = rgb_color(max(((col>>16)&0xFF)-0x20UL,0UL), max(((col>> 8)&0xFF)-0x20UL,0UL), max(((col>> 0)&0xFF)-0x20UL,0UL));
 		leds::set_ring(0, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
-		color = rgb_color(max(((col>>16)&0xFF)-0x1A,0), max(((col>> 8)&0xFF)-0x1A,0), max(((col>> 0)&0xFF)-0x1A,0));
+		color = rgb_color(max(((col>>16)&0xFF)-0x1AUL,0UL), max(((col>> 8)&0xFF)-0x1AUL,0UL), max(((col>> 0)&0xFF)-0x1AUL,0UL));
 		leds::set_ring(1, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
 		leds::set_ring(7, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
-		color = rgb_color(max(((col>>16)&0xFF)-0x18,0), max(((col>> 8)&0xFF)-0x18,0), max(((col>> 0)&0xFF)-0x18,0));
+		color = rgb_color(max(((col>>16)&0xFF)-0x18UL,0UL), max(((col>> 8)&0xFF)-0x18UL,0UL), max(((col>> 0)&0xFF)-0x18UL,0UL));
 		leds::set_ring(2, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
 		leds::set_ring(6, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
-		color = rgb_color(max(((col>>16)&0xFF)-0x10,0), max(((col>> 8)&0xFF)-0x10,0), max(((col>> 0)&0xFF)-0x10,0));
+		color = rgb_color(max(((col>>16)&0xFF)-0x10UL,0UL), max(((col>> 8)&0xFF)-0x10UL,0UL), max(((col>> 0)&0xFF)-0x10UL,0UL));
 		leds::set_ring(3, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
 		leds::set_ring(5, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
-		color = rgb_color(max(((col>>16)&0xFF)-0x00,0), max(((col>> 8)&0xFF)-0x00,0), max(((col>> 0)&0xFF)-0x00,0));
+		color = rgb_color(max(((col>>16)&0xFF)-0x00UL,0UL), max(((col>> 8)&0xFF)-0x00UL,0UL), max(((col>> 0)&0xFF)-0x00UL,0UL));
 		leds::set_ring(4, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
 
 		for (uint32_t d = 0; d < 4; d++) {
@@ -578,7 +581,7 @@ static void rgb_walker() {
 	static uint8_t work_buffer[0x80] = { 0 };
 
 	for (uint32_t c = 0; c < 0x80; c++) {
-		work_buffer[c] = max(0,(sine_wave[c] - 0x80) - 0x20) ;
+		work_buffer[c] = max(0UL,(sine_wave[c] - 0x80UL) - 0x20UL) ;
 	}
 
 	uint32_t walk = 0;
@@ -703,15 +706,15 @@ static void light_tracer() {
 	uint32_t walk = 0;
 
 	rgb_color gradient[8];
-	int32_t col = eeprom_settings.ring_color;
-	gradient[7] = rgb_color(max(((col>>16)&0xFF)-0x40,0), max(((col>> 8)&0xFF)-0x40,0), max(((col>> 0)&0xFF)-0x40,0));
-	gradient[6] = rgb_color(max(((col>>16)&0xFF)-0x40,0), max(((col>> 8)&0xFF)-0x40,0), max(((col>> 0)&0xFF)-0x40,0));
-	gradient[5] = rgb_color(max(((col>>16)&0xFF)-0x30,0), max(((col>> 8)&0xFF)-0x30,0), max(((col>> 0)&0xFF)-0x30,0));
-	gradient[4] = rgb_color(max(((col>>16)&0xFF)-0x18,0), max(((col>> 8)&0xFF)-0x18,0), max(((col>> 0)&0xFF)-0x18,0));
-	gradient[3] = rgb_color(max(((col>>16)&0xFF)-0x00,0), max(((col>> 8)&0xFF)-0x00,0), max(((col>> 0)&0xFF)-0x00,0));
-	gradient[2] = rgb_color(max((col>>16)&0xFF,0x10), max((col>> 8)&0xFF,0x00), max((col>> 0)&0xFF,0x20));
-	gradient[1] = rgb_color(max((col>>16)&0xFF,0x30), max((col>> 8)&0xFF,0x30), max((col>> 0)&0xFF,0x30));
-	gradient[0] = rgb_color(max((col>>16)&0xFF,0x40), max((col>> 8)&0xFF,0x40), max((col>> 0)&0xFF,0x40));
+	uint32_t col = eeprom_settings.ring_color;
+	gradient[7] = rgb_color(max(((col>>16)&0xFF)-0x40UL,0UL), max(((col>> 8)&0xFF)-0x40UL,0UL), max(((col>> 0)&0xFF)-0x40UL,0UL));
+	gradient[6] = rgb_color(max(((col>>16)&0xFF)-0x40UL,0UL), max(((col>> 8)&0xFF)-0x40UL,0UL), max(((col>> 0)&0xFF)-0x40UL,0UL));
+	gradient[5] = rgb_color(max(((col>>16)&0xFF)-0x30UL,0UL), max(((col>> 8)&0xFF)-0x30UL,0UL), max(((col>> 0)&0xFF)-0x30UL,0UL));
+	gradient[4] = rgb_color(max(((col>>16)&0xFF)-0x18UL,0UL), max(((col>> 8)&0xFF)-0x18UL,0UL), max(((col>> 0)&0xFF)-0x18UL,0UL));
+	gradient[3] = rgb_color(max(((col>>16)&0xFF)-0x00UL,0UL), max(((col>> 8)&0xFF)-0x00UL,0UL), max(((col>> 0)&0xFF)-0x00UL,0UL));
+	gradient[2] = rgb_color(max((col>>16)&0xFF,0x10UL), max((col>> 8)&0xFF,0x00UL), max((col>> 0)&0xFF,0x20UL));
+	gradient[1] = rgb_color(max((col>>16)&0xFF,0x30UL), max((col>> 8)&0xFF,0x30UL), max((col>> 0)&0xFF,0x30UL));
+	gradient[0] = rgb_color(max((col>>16)&0xFF,0x40UL), max((col>> 8)&0xFF,0x40UL), max((col>> 0)&0xFF,0x40UL));
 
 	for (;;) {
 
@@ -850,7 +853,7 @@ static void ring_bar_move() {
 	int32_t switch_dir = 1;
 	uint32_t switch_counter = 0;
 
-	static int8_t indecies0[] = {
+	static const int8_t indecies0[] = {
 		-1,
 		-1,
 		-1,
@@ -869,7 +872,7 @@ static void ring_bar_move() {
 		-1,
 	};
 
-	static int8_t indecies1[] = {
+	static const int8_t indecies1[] = {
 		-1,
 		-1,
 		-1,
@@ -981,13 +984,13 @@ static void rgb_vertical_wall() {
 static void shine_vertical() {
 	uint32_t rgb_walk = 0;
 	rgb_color gradient[256];
-	for (int32_t c = 0; c < 128; c++) {
+	for (uint32_t c = 0; c < 128; c++) {
 		uint32_t r = max((eeprom_settings.ring_color>>16)&0xFF,c/2);
 		uint32_t g = max((eeprom_settings.ring_color>> 8)&0xFF,c/2);
 		uint32_t b = max((eeprom_settings.ring_color>> 0)&0xFF,c/2);
 		gradient[c] = rgb_color(r, g, b);
 	}
-	for (int32_t c = 0; c < 128; c++) {
+	for (uint32_t c = 0; c < 128; c++) {
 		uint32_t r = max((eeprom_settings.ring_color>>16)&0xFF,(128-c)/2);
 		uint32_t g = max((eeprom_settings.ring_color>> 8)&0xFF,(128-c)/2);
 		uint32_t b = max((eeprom_settings.ring_color>> 0)&0xFF,(128-c)/2);
@@ -1035,13 +1038,13 @@ static void shine_horizontal() {
 	int32_t switch_dir = 1;
 
 	rgb_color gradient[256];
-	for (int32_t c = 0; c < 128; c++) {
+	for (uint32_t c = 0; c < 128; c++) {
 		uint32_t r = max((eeprom_settings.ring_color>>16)&0xFF,c/2);
 		uint32_t g = max((eeprom_settings.ring_color>> 8)&0xFF,c/2);
 		uint32_t b = max((eeprom_settings.ring_color>> 0)&0xFF,c/2);
 		gradient[c] = rgb_color(r, g, b);
 	}
-	for (int32_t c = 0; c < 128; c++) {
+	for (uint32_t c = 0; c < 128; c++) {
 		uint32_t r = max((eeprom_settings.ring_color>>16)&0xFF,(128-c)/2);
 		uint32_t g = max((eeprom_settings.ring_color>> 8)&0xFF,(128-c)/2);
 		uint32_t b = max((eeprom_settings.ring_color>> 0)&0xFF,(128-c)/2);
@@ -1250,13 +1253,13 @@ static void brilliance() {
 			uint32_t b = (eeprom_settings.bird_color>> 0)&0xFF;
 			gradient[c] = rgb_color(r, g, b);
 		}
-		for (int32_t c = 0; c < 16; c++) {
+		for (uint32_t c = 0; c < 16; c++) {
 			uint32_t r = max((eeprom_settings.bird_color>>16)&0xFF,c*8);
 			uint32_t g = max((eeprom_settings.bird_color>> 8)&0xFF,c*8);
 			uint32_t b = max((eeprom_settings.bird_color>> 0)&0xFF,c*8);
 			gradient[c+112] = rgb_color(r, g, b);
 		}
-		for (int32_t c = 0; c < 16; c++) {
+		for (uint32_t c = 0; c < 16; c++) {
 			uint32_t r = max((eeprom_settings.bird_color>>16)&0xFF,(16-c)*8);
 			uint32_t g = max((eeprom_settings.bird_color>> 8)&0xFF,(16-c)*8);
 			uint32_t b = max((eeprom_settings.bird_color>> 0)&0xFF,(16-c)*8);
@@ -1309,7 +1312,7 @@ static void tingling() {
 		bool active;
 		int32_t wait;
 		int32_t index;
-		int32_t progress;
+		uint32_t progress;
 		bool lightordark;
 	} tingles[NUM_TINGLES] = {0};
 
@@ -1354,8 +1357,8 @@ static void tingling() {
 			} else if (tingles[c].wait > 0) {
 				tingles[c].wait --;
 			} else {
-				int32_t r = 0,g = 0,b = 0;
-				int32_t progress = tingles[c].progress;
+				uint32_t r = 0,g = 0,b = 0;
+				uint32_t progress = tingles[c].progress;
 				if (progress > 8) {
 					progress -= 8;
 					progress = 8 - progress;
@@ -1368,9 +1371,9 @@ static void tingling() {
 					r = ((eeprom_settings.ring_color>>16)&0xFF)-progress*8;
 					g = ((eeprom_settings.ring_color>> 8)&0xFF)-progress*8;
 					b = ((eeprom_settings.ring_color>> 0)&0xFF)-progress*8;
-					r = max(r,0);
-					g = max(g,0);
-					b = max(b,0);					
+					r = max(r,0UL);
+					g = max(g,0UL);
+					b = max(b,0UL);					
 				}
 				leds::set_ring_all(tingles[c].index, gamma_curve[r], 
 								  				 gamma_curve[g], 
@@ -1394,7 +1397,7 @@ static void twinkle() {
 		bool active;
 		int32_t wait;
 		int32_t index;
-		int32_t progress;
+		uint32_t progress;
 	} tingles[NUM_TWINKLE] = {0};
 
 	for (; ;) {
@@ -1437,8 +1440,8 @@ static void twinkle() {
 			} else if (tingles[c].wait > 0) {
 				tingles[c].wait --;
 			} else {
-				int32_t r = 0,g = 0,b = 0;
-				int32_t progress = tingles[c].progress;
+				uint32_t r = 0,g = 0,b = 0;
+				uint32_t progress = tingles[c].progress;
 				if (progress > 8) {
 					progress -= 8;
 					progress = 8 - progress;
@@ -3952,7 +3955,7 @@ class SX1280 {
 } sx1280;
 
 extern "C" {
-	void PIN_INT0_IRQHandler(void) {
+	volatile void PIN_INT0_IRQHandler(void) {
 		sx1280.OnDioIrq();
 	}
 }
@@ -4163,8 +4166,12 @@ class Setup {
 
 } setup;
 
+static uint8_t screen_data[256] = { 0 };
+
+};
+
 extern "C" {
-	void SysTick_Handler(void)
+	volatile void SysTick_Handler(void)
 	{	
 		system_clock_ms++;
 #ifndef NO_SX1280
@@ -4174,16 +4181,15 @@ extern "C" {
 #endif  // #ifndef NO_SX1280
 	}
 
-	void TIMER32_0_IRQHandler(void)
+	volatile void TIMER32_0_IRQHandler(void)
 	{
 	}
 
-	void UART_IRQHandler(void)
+	volatile void UART_IRQHandler(void)
 	{
 	}
 }
 
-static uint8_t screen_data[256] = { 0 };
 
 int main(void)
 {
