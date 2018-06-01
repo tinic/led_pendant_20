@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <functional>
 
 #include "chip.h"
 #include "gpio_11xx_1.h"
@@ -18,6 +19,10 @@
 #ifdef NO_SX1280
 #include "printf.h"
 #endif  // #ifdef NO_SX1280
+
+namespace std {
+    void __throw_bad_function_call() { for(;;) {} }
+};
 
 
 namespace {
@@ -71,6 +76,38 @@ static const uint8_t gamma_curve[256] = {
 	0xdf, 0xe1, 0xe3, 0xe5, 0xe7, 0xe9, 0xeb, 0xed, 0xef, 0xf1, 0xf4, 0xf6, 0xf8, 0xfa, 0xfc, 0xff
 };
 
+struct rgbc {
+	
+	rgbc(uint32_t rgb) { this->rgb = rgb; }
+	rgbc(uint8_t r, uint8_t g, uint8_t b) { this->rgb = rgb; }
+	
+	union {
+		uint32_t rgb;
+		
+		struct {
+			uint8_t b;
+			uint8_t g;
+			uint8_t r;
+			uint8_t a;
+		};
+		
+	};
+	
+	rgbc gamma() { return rgbc(gammar(), gammag(), gammab());  }
+	
+	uint32_t ru() const { return uint32_t(r); };
+	uint32_t gu() const { return uint32_t(g); };
+	uint32_t bu() const { return uint32_t(b); };
+	
+	uint8_t gammar() const { return gamma_curve[r]; }
+	uint8_t gammag() const { return gamma_curve[g]; }
+	uint8_t gammab() const { return gamma_curve[b]; }
+
+	uint32_t gammaru() const { return uint32_t(gamma_curve[r]); }
+	uint32_t gammagu() const { return uint32_t(gamma_curve[g]); }
+	uint32_t gammabu() const { return uint32_t(gamma_curve[b]); }
+};
+
 static const uint8_t sine_wave[256] = {
 	0x80, 0x83, 0x86, 0x89, 0x8C, 0x90, 0x93, 0x96,
 	0x99, 0x9C, 0x9F, 0xA2, 0xA5, 0xA8, 0xAB, 0xAE,
@@ -106,50 +143,50 @@ static const uint8_t sine_wave[256] = {
 	0x67, 0x6A, 0x6D, 0x70, 0x74, 0x77, 0x7A, 0x7D
 };
 
-static const uint32_t bird_colors[] = {
-	0x404000,
-	0x104020,
-	0x005010,
-	0x004040,
-	0x083040,
-	0x001050,
-	0x300050,
-	0x401040,
-	0x501000,
-	0x401818,
-	0x400020,
-	0x453000,
-	0x452000,
-	0x204000,
-	0x201024,
-	0x102014,
-	0x201810,
-	0x101820,
-	0x303030,
-	0x202020,
+static const rgbc bird_colors[] = {
+	{ 0x404000UL },
+	{ 0x104020UL },
+	{ 0x005010UL },
+	{ 0x004040UL },
+	{ 0x083040UL },
+	{ 0x001050UL },
+	{ 0x300050UL },
+	{ 0x401040UL },
+	{ 0x501000UL },
+	{ 0x401818UL },
+	{ 0x400020UL },
+	{ 0x453000UL },
+	{ 0x452000UL },
+	{ 0x204000UL },
+	{ 0x201024UL },
+	{ 0x102014UL },
+	{ 0x201810UL },
+	{ 0x101820UL },
+	{ 0x303030UL },
+	{ 0x202020UL }
 };
 
-static const uint32_t ring_colors[] = {
-	0x404000,
-	0x104020,
-	0x005010,
-	0x004040,
-	0x083040,
-	0x001050,
-	0x300050,
-	0x401040,
-	0x501000,
-	0x401818,
-	0x400020,
-	0x453000,
-	0x402000,
-	0x204000,
-	0x201024,
-	0x102014,
-	0x201810,
-	0x101820,
-	0x303030,
-	0x202020,
+static const rgbc ring_colors[] = {
+	{ 0x404000UL },
+	{ 0x104020UL },
+	{ 0x005010UL },
+	{ 0x004040UL },
+	{ 0x083040UL },
+	{ 0x001050UL },
+	{ 0x300050UL },
+	{ 0x401040UL },
+	{ 0x501000UL },
+	{ 0x401818UL },
+	{ 0x400020UL },
+	{ 0x453000UL },
+	{ 0x402000UL },
+	{ 0x204000UL },
+	{ 0x201024UL },
+	{ 0x102014UL },
+	{ 0x201810UL },
+	{ 0x101820UL },
+	{ 0x303030UL },
+	{ 0x202020UL }
 };
 
 static void delay(int32_t ms) {
@@ -191,16 +228,19 @@ private:
 
 } random;
 
-static struct flash_access {
+static class flash_storage {
 
-	static const uint32_t FLASH_MOSI0_PIN = 0x0006; // 0_6
-	static const uint32_t FLASH_MISO0_PIN = 0x0009; // 0_9
-	static const uint32_t FLASH_SCK0_PIN = 0x000A; // 0_10
-	static const uint32_t FLASH_CSEL_PIN = 0x000A; // 0_10
+public:
+	const uint32_t FLASH_MOSI0_PIN = 0x0006; // 0_6
+	const uint32_t FLASH_MISO0_PIN = 0x0009; // 0_9
+	const uint32_t FLASH_SCK0_PIN = 0x000A; // 0_10
+	const uint32_t FLASH_CSEL_PIN = 0x000A; // 0_10
 
-	static const uint32_t ALT_SCK0_PIN = 0x0009; // 0_9
+	const uint32_t ALT_SCK0_PIN = 0x0009; // 0_9
 
-	flash_access() {
+	flash_storage() { }
+	
+	void init() {
 		// CSEL
 		Chip_IOCON_PinMuxSet(LPC_IOCON, (FLASH_CSEL_PIN>>8), (FLASH_CSEL_PIN&0xFF), IOCON_FUNC2);
 		// MISO0
@@ -258,19 +298,21 @@ static struct flash_access {
 	}
 
 private:
-	static void push_byte(uint8_t byte) {
+
+	void push_byte(uint8_t byte) {
 		while(!Chip_SSP_GetStatus(LPC_SSP0, SSP_STAT_TNF));
 		Chip_SSP_SendFrame(LPC_SSP0, byte);
 	}
 
-	static uint8_t read_byte() {
+	uint8_t read_byte() {
 		while(!Chip_SSP_GetStatus(LPC_SSP0, SSP_STAT_RNE));
 		return Chip_SSP_ReceiveFrame(LPC_SSP0);
 	}
-} flash_access;
+} flash_storage;
 
-static struct eeprom_settings {
+static class eeprom_settings {
 
+public:
 	eeprom_settings() {
 		program_count = 0;
 		program_curr = 0;
@@ -286,6 +328,19 @@ static struct eeprom_settings {
 		param[4] = SystemCoreClock;
 		unsigned int result[4] = { 0 };
 		iap_entry(param, result);
+
+		program_count = 27;
+
+		if (bird_color.rgb == 0 ||
+			bird_color_index > 16 ||
+			ring_color.rgb == 0 ||
+			ring_color_index > 16 ) {
+			bird_color = 0x404000;
+			bird_color_index = 0;
+			ring_color = 0x083040;
+			ring_color_index = 0;
+			save();
+		}
 	}
 
 	void save() {
@@ -302,17 +357,19 @@ static struct eeprom_settings {
 	uint32_t program_count;
 	uint32_t program_curr;
 	uint32_t program_change_count;
-	uint32_t bird_color;
+	rgbc bird_color = { 0UL };
 	uint32_t bird_color_index;
-	uint32_t ring_color;
+	rgbc ring_color = { 0UL };
 	uint32_t ring_color_index;
+
 } eeprom_settings;
 
 class spi;
+
 static class leds {
 public:
 
-	static void set_ring(uint32_t index, uint32_t r, uint32_t g, uint32_t b) {
+	void set_ring(uint32_t index, uint32_t r, uint32_t g, uint32_t b) {
 		led_data[frnt_ring_indecies[index]*3+1] = r;
 		led_data[frnt_ring_indecies[index]*3+0] = g;
 		led_data[frnt_ring_indecies[index]*3+2] = b;
@@ -321,7 +378,16 @@ public:
 		led_data[back_ring_indecies[index]*3+2] = b;
 	}
 
-	static void set_ring_synced(uint32_t index, uint32_t r, uint32_t g, uint32_t b) {
+	void set_ring(uint32_t index, rgbc color) {
+		led_data[frnt_ring_indecies[index]*3+1] = color.r;
+		led_data[frnt_ring_indecies[index]*3+0] = color.g;
+		led_data[frnt_ring_indecies[index]*3+2] = color.b;
+		led_data[back_ring_indecies[index]*3+1] = color.r;
+		led_data[back_ring_indecies[index]*3+0] = color.g;
+		led_data[back_ring_indecies[index]*3+2] = color.b;
+	}
+
+	void set_ring_synced(uint32_t index, uint32_t r, uint32_t g, uint32_t b) {
 		led_data[frnt_ring_indecies[index]*3+1] = r;
 		led_data[frnt_ring_indecies[index]*3+0] = g;
 		led_data[frnt_ring_indecies[index]*3+2] = b;
@@ -330,7 +396,16 @@ public:
 		led_data[back_ring_indecies[(8-index)&7]*3+2] = b;
 	}
 
-	static void set_ring_all(uint32_t index, uint32_t r, uint32_t g, uint32_t b) {
+	void set_ring_synced(uint32_t index, rgbc color) {
+		led_data[frnt_ring_indecies[index]*3+1] = color.r;
+		led_data[frnt_ring_indecies[index]*3+0] = color.g;
+		led_data[frnt_ring_indecies[index]*3+2] = color.b;
+		led_data[back_ring_indecies[(8-index)&7]*3+1] = color.r;
+		led_data[back_ring_indecies[(8-index)&7]*3+0] = color.g;
+		led_data[back_ring_indecies[(8-index)&7]*3+2] = color.b;
+	}
+
+	void set_ring_all(uint32_t index, uint32_t r, uint32_t g, uint32_t b) {
 		if(index < 8) { 
 			led_data[frnt_ring_indecies[index]*3+1] = r;
 			led_data[frnt_ring_indecies[index]*3+0] = g;
@@ -342,7 +417,7 @@ public:
 		}
 	}
 
-	static void set_bird(uint32_t index, uint32_t r, uint32_t g, uint32_t b) {
+	void set_bird(uint32_t index, uint32_t r, uint32_t g, uint32_t b) {
 		led_data[frnt_bird_indecies[index]*3+1] = r;
 		led_data[frnt_bird_indecies[index]*3+0] = g;
 		led_data[frnt_bird_indecies[index]*3+2] = b;
@@ -351,39 +426,41 @@ public:
 		led_data[back_bird_indecies[index]*3+2] = b;
 	}
 
+	void set_bird(uint32_t index, rgbc color) {
+		led_data[frnt_bird_indecies[index]*3+1] = color.r;
+		led_data[frnt_bird_indecies[index]*3+0] = color.g;
+		led_data[frnt_bird_indecies[index]*3+2] = color.b;
+		led_data[back_bird_indecies[index]*3+1] = color.r;
+		led_data[back_bird_indecies[index]*3+0] = color.g;
+		led_data[back_bird_indecies[index]*3+2] = color.b;
+	}
+	
 private:
 	friend class spi;
 
 #define TOTAL_LEDS 			24
 #define HALF_LEDS 			12
 
-	static const uint8_t frnt_ring_indecies[];
-	static const uint8_t back_ring_indecies[];
-	static const uint8_t frnt_bird_indecies[];
-	static const uint8_t back_bird_indecies[];
+	const uint8_t frnt_ring_indecies[8] = { 0x14, 0x15, 0x16, 0x17, 0x10, 0x11, 0x12, 0x13 };
+	const uint8_t back_ring_indecies[8] = { 0x03, 0x04, 0x05, 0x06, 0x07, 0x00, 0x01, 0x02 };
+	const uint8_t frnt_bird_indecies[4] = { 0x0D, 0x0C, 0x0E, 0x0F };
+	const uint8_t back_bird_indecies[4] = { 0x09, 0x0B, 0x0A, 0x08 };
 
-	static uint8_t led_data[TOTAL_LEDS*3];
+	uint8_t led_data[TOTAL_LEDS*3] = { 0x00 };
 
 } leds;
 
-const uint8_t leds::frnt_ring_indecies[] = { 0x14, 0x15, 0x16, 0x17, 0x10, 0x11, 0x12, 0x13 };
-const uint8_t leds::back_ring_indecies[] = { 0x03, 0x04, 0x05, 0x06, 0x07, 0x00, 0x01, 0x02 };
-const uint8_t leds::frnt_bird_indecies[] = { 0x0D, 0x0C, 0x0E, 0x0F };
-const uint8_t leds::back_bird_indecies[] = { 0x09, 0x0B, 0x0A, 0x08 };
-
-uint8_t leds::led_data[TOTAL_LEDS*3] = { 0x00 } ;
-
 static class spi {
 public:
-	static const uint32_t BOTTOM_LED_MOSI0_PIN = 0x0009; // 0_9
-	static const uint32_t BOTTOM_LED_SCK0_PIN = 0x000A; // 0_10
+	const uint32_t BOTTOM_LED_MOSI0_PIN = 0x0009; // 0_9
+	const uint32_t BOTTOM_LED_SCK0_PIN = 0x000A; // 0_10
 
-	static const uint32_t ALT_SCK0_PIN = 0x0006; // 0_6
+	const uint32_t ALT_SCK0_PIN = 0x0006; // 0_6
 
-	static const uint32_t TOP_LED_MOSI1_PIN = 0x0116; // 1_22
-	static const uint32_t TOP_LED_SCK1_PIN = 0x010F; // 1_15
+	const uint32_t TOP_LED_MOSI1_PIN = 0x0116; // 1_22
+	const uint32_t TOP_LED_SCK1_PIN = 0x010F; // 1_15
 
-	static void init() {
+	void init() {
 		// MOSI0
 		Chip_IOCON_PinMuxSet(LPC_IOCON, (BOTTOM_LED_MOSI0_PIN>>8), (BOTTOM_LED_MOSI0_PIN&0xFF), IOCON_FUNC1);
 		// SCK0
@@ -410,7 +487,7 @@ public:
 		Chip_SSP_Enable(LPC_SSP1);
 	}
 
-	static void push_frame(uint32_t brightness = 0x20)  {
+	void push_frame(uint32_t brightness = 0x20)  {
 	
 		// SCK0
 		Chip_IOCON_PinMuxSet(LPC_IOCON, (BOTTOM_LED_SCK0_PIN>>8), (BOTTOM_LED_SCK0_PIN&0xFF), IOCON_FUNC2);
@@ -434,14 +511,14 @@ public:
 		// Frame data
 		for (int32_t c=0; c<HALF_LEDS; c++) {
 			push_byte0(0xE0 | brightness);
-			push_byte0(leds::led_data[HALF_LEDS*0*3 + c*3+0]);
-			push_byte0(leds::led_data[HALF_LEDS*0*3 + c*3+1]);
-			push_byte0(leds::led_data[HALF_LEDS*0*3 + c*3+2]);
+			push_byte0(leds.led_data[HALF_LEDS*0*3 + c*3+0]);
+			push_byte0(leds.led_data[HALF_LEDS*0*3 + c*3+1]);
+			push_byte0(leds.led_data[HALF_LEDS*0*3 + c*3+2]);
 
 			push_byte1(0xE0 | brightness);
-			push_byte1(leds::led_data[HALF_LEDS*1*3 + c*3+0]);
-			push_byte1(leds::led_data[HALF_LEDS*1*3 + c*3+1]);
-			push_byte1(leds::led_data[HALF_LEDS*1*3 + c*3+2]);
+			push_byte1(leds.led_data[HALF_LEDS*1*3 + c*3+0]);
+			push_byte1(leds.led_data[HALF_LEDS*1*3 + c*3+1]);
+			push_byte1(leds.led_data[HALF_LEDS*1*3 + c*3+2]);
 		}
 		
 		// End frame
@@ -458,1429 +535,18 @@ public:
 
 private:
 	
-	static void push_byte0(uint8_t byte) {
+	void push_byte0(uint8_t byte) {
 		while(!Chip_SSP_GetStatus(LPC_SSP0, SSP_STAT_TNF));
 		Chip_SSP_SendFrame(LPC_SSP0, byte);
 	}
 	
-	static void push_byte1(uint8_t byte) {
+	void push_byte1(uint8_t byte) {
 		while(!Chip_SSP_GetStatus(LPC_SSP1, SSP_STAT_TNF));
 		Chip_SSP_SendFrame(LPC_SSP1, byte);
 	}
 
 } spi;
 
-static void advance_mode(uint32_t mode) {
-	switch(mode) {
-		case	0:
-				eeprom_settings.bird_color_index++; 
-				eeprom_settings.bird_color_index %= 20; 
-				eeprom_settings.bird_color = bird_colors[eeprom_settings.bird_color_index];
-				break;
-		case	1:
-				eeprom_settings.ring_color_index++; 
-				eeprom_settings.ring_color_index %= 20; 
-				eeprom_settings.ring_color = ring_colors[eeprom_settings.ring_color_index];
-				break;
-	}
-}
-
-static void config_mode() {
-}
-
-static bool test_button() {
-	static uint32_t last_config_time = 0;
-	// Don't take into account this button press if we just
-	// came out of configuration
-	if ((system_clock_ms - last_config_time) < 1000) {
-		return false;
-	}
-	if (Chip_GPIO_ReadPortBit(LPC_GPIO, 0, 2)) {
-		uint32_t d_time = system_clock_ms;
-		delay(100);
-		for (;Chip_GPIO_ReadPortBit(LPC_GPIO, 0, 2);) {
-			uint32_t u_time = system_clock_ms;
-			// long press > 2 seconds gets us into config mode
-			if ((u_time - d_time) > 2000) {
-				config_mode();
-				last_config_time = system_clock_ms;
-				return false;
-			}
-		}
-		// advance program if we did not end up in config mode
-		eeprom_settings.program_curr++;
-		eeprom_settings.program_change_count++;
-		if (eeprom_settings.program_curr >= eeprom_settings.program_count) {
-			eeprom_settings.program_curr = 0;
-		}
-#ifdef NO_SX1280
-		printf("Setting program #%d\n", eeprom_settings.program_curr);
-#endif  // #ifdef NO_SX1280
-		eeprom_settings.save();
-		return true;
-	}
-	return false;
-}
-
-static void color_ring() {
-	for (; ;) {
-		for (uint32_t d = 0; d < 8; d++) {
-			leds::set_ring(d, gamma_curve[((eeprom_settings.ring_color>>16)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.ring_color>> 8)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.ring_color>> 0)&0xFF)]);
-		}
-
-		for (uint32_t d = 0; d < 4; d++) {
-			leds::set_bird(d, gamma_curve[((eeprom_settings.bird_color>>16)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.bird_color>> 8)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.bird_color>> 0)&0xFF)]);
-		}
-
-		delay(5);
-		spi::push_frame();
-		if (test_button()) {
-			return;
-		}
-	}
-}
-
-static void fade_ring() {
-	for (; ;) {
-		rgb_color color;
-		int32_t col = eeprom_settings.ring_color;
-		color = rgb_color(max(((col>>16)&0xFF)-0x20UL,0UL), max(((col>> 8)&0xFF)-0x20UL,0UL), max(((col>> 0)&0xFF)-0x20UL,0UL));
-		leds::set_ring(0, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
-		color = rgb_color(max(((col>>16)&0xFF)-0x1AUL,0UL), max(((col>> 8)&0xFF)-0x1AUL,0UL), max(((col>> 0)&0xFF)-0x1AUL,0UL));
-		leds::set_ring(1, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
-		leds::set_ring(7, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
-		color = rgb_color(max(((col>>16)&0xFF)-0x18UL,0UL), max(((col>> 8)&0xFF)-0x18UL,0UL), max(((col>> 0)&0xFF)-0x18UL,0UL));
-		leds::set_ring(2, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
-		leds::set_ring(6, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
-		color = rgb_color(max(((col>>16)&0xFF)-0x10UL,0UL), max(((col>> 8)&0xFF)-0x10UL,0UL), max(((col>> 0)&0xFF)-0x10UL,0UL));
-		leds::set_ring(3, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
-		leds::set_ring(5, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
-		color = rgb_color(max(((col>>16)&0xFF)-0x00UL,0UL), max(((col>> 8)&0xFF)-0x00UL,0UL), max(((col>> 0)&0xFF)-0x00UL,0UL));
-		leds::set_ring(4, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
-
-		for (uint32_t d = 0; d < 4; d++) {
-			leds::set_bird(d, gamma_curve[((eeprom_settings.bird_color>>16)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.bird_color>> 8)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.bird_color>> 0)&0xFF)]);
-		}
-
-		delay(5);
-		spi::push_frame();
-		if (test_button()) {
-			return;
-		}
-	}
-}
-
-static void rgb_walker() {
-
-	static uint8_t work_buffer[0x80] = { 0 };
-
-	for (uint32_t c = 0; c < 0x80; c++) {
-		work_buffer[c] = max(0UL,(sine_wave[c] - 0x80UL) - 0x20UL) ;
-	}
-
-	uint32_t walk = 0;
-	uint32_t rgb_walk = 0;
-	uint32_t flash = 0;
-	for (;;) {
-
-		rgb_color color = hsvToRgb(rgb_walk/3, 255, 255);
-		for (uint32_t d = 0; d < 8; d++) {
-			leds::set_ring(d, gamma_curve[(work_buffer[(((0x80/8)*d) + walk)&0x7F] * ((color.red)&0xFF)) >> 8],
-					 	      gamma_curve[(work_buffer[(((0x80/8)*d) + walk)&0x7F] * ((color.green)&0xFF)) >> 8],
-					 		  gamma_curve[(work_buffer[(((0x80/8)*d) + walk)&0x7F] * ((color.blue)&0xFF)) >> 8]);
-		}
-
-		for (uint32_t d = 0; d < 4; d++) {
-			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
-		}
-
-		walk ++;
-		walk &= 0x7F;
-
-		rgb_walk ++;
-		if (rgb_walk >= 360*3) {
-			rgb_walk = 0;
-		}
-
-		delay(5);
-
-		spi::push_frame();
-		if (test_button()) {
-			return;
-		}
-	}
-}
-static void rgb_glow() {
-	uint32_t rgb_walk = 0;
-	uint32_t walk = 0;
-	int32_t switch_dir = 1;
-	uint32_t switch_counter = 0;
-	for (;;) {
-
-		rgb_color color = hsvToRgb(rgb_walk, 255, 255);
-		for (uint32_t d = 0; d < 8; d++) {
-			leds::set_ring_synced(d,
-				gamma_curve[((color.red)&0xFF)/4],
-				gamma_curve[((color.green)&0xFF)/4],
-				gamma_curve[((color.blue)&0xFF)/4]
-			);
-		}
-		
-		rgb_walk ++;
-		if (rgb_walk >= 360) {
-			rgb_walk = 0;
-		}
-
-		for (uint32_t d = 0; d < 4; d++) {
-			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
-		}
-
-		delay(50);
-
-		spi::push_frame();
-		if (test_button()) {
-			return;
-		}
-	}
-}
-
-static void rgb_tracer() {
-	uint32_t rgb_walk = 0;
-	uint32_t walk = 0;
-	int32_t switch_dir = 1;
-	uint32_t switch_counter = 0;
-	for (;;) {
-
-		for (uint32_t d = 0; d < 8; d++) {
-			leds::set_ring(d,0,0,0);
-		}
-
-		rgb_color color = hsvToRgb(rgb_walk/3, 255, 255);
-		leds::set_ring_synced(walk&0x7,
-			gamma_curve[((color.red)&0xFF)/4],
-			gamma_curve[((color.green)&0xFF)/4],
-			gamma_curve[((color.blue)&0xFF)/4]
-		);
-
-		walk += switch_dir;
-
-		rgb_walk += 7;
-		if (rgb_walk >= 360*3) {
-			rgb_walk = 0;
-		}
-
-		for (uint32_t d = 0; d < 4; d++) {
-			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
-		}
-
-		switch_counter ++;
-		if (switch_counter > 64 && random.get(0,2)) {
-			switch_dir *= -1;
-			switch_counter = 0;
-			walk += switch_dir;
-			walk += switch_dir;
-		}
-
-		delay(50);
-
-		spi::push_frame();
-		if (test_button()) {
-			return;
-		}
-	}
-}
-
-static void light_tracer() {
-	uint32_t walk = 0;
-
-	rgb_color gradient[8];
-	uint32_t col = eeprom_settings.ring_color;
-	gradient[7] = rgb_color(max(((col>>16)&0xFF)-0x40UL,0UL), max(((col>> 8)&0xFF)-0x40UL,0UL), max(((col>> 0)&0xFF)-0x40UL,0UL));
-	gradient[6] = rgb_color(max(((col>>16)&0xFF)-0x40UL,0UL), max(((col>> 8)&0xFF)-0x40UL,0UL), max(((col>> 0)&0xFF)-0x40UL,0UL));
-	gradient[5] = rgb_color(max(((col>>16)&0xFF)-0x30UL,0UL), max(((col>> 8)&0xFF)-0x30UL,0UL), max(((col>> 0)&0xFF)-0x30UL,0UL));
-	gradient[4] = rgb_color(max(((col>>16)&0xFF)-0x18UL,0UL), max(((col>> 8)&0xFF)-0x18UL,0UL), max(((col>> 0)&0xFF)-0x18UL,0UL));
-	gradient[3] = rgb_color(max(((col>>16)&0xFF)-0x00UL,0UL), max(((col>> 8)&0xFF)-0x00UL,0UL), max(((col>> 0)&0xFF)-0x00UL,0UL));
-	gradient[2] = rgb_color(max((col>>16)&0xFF,0x10UL), max((col>> 8)&0xFF,0x00UL), max((col>> 0)&0xFF,0x20UL));
-	gradient[1] = rgb_color(max((col>>16)&0xFF,0x30UL), max((col>> 8)&0xFF,0x30UL), max((col>> 0)&0xFF,0x30UL));
-	gradient[0] = rgb_color(max((col>>16)&0xFF,0x40UL), max((col>> 8)&0xFF,0x40UL), max((col>> 0)&0xFF,0x40UL));
-
-	for (;;) {
-
-		for (uint32_t d = 0; d < 8; d++) {
-			leds::set_ring((walk+d)&0x7,
-				gamma_curve[((gradient[d].red)&0xFF)],
-				gamma_curve[((gradient[d].green)&0xFF)],
-				gamma_curve[((gradient[d].blue)&0xFF)]
-			);
-		}
-
-		walk--;
-
-		for (uint32_t d = 0; d < 4; d++) {
-			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
-		}
-
-		delay(100);
-
-		spi::push_frame();
-		if (test_button()) {
-			return;
-		}
-	}
-}
-
-
-static void ring_tracer() {
-	uint32_t walk = 0;
-	int32_t switch_dir = 1;
-	uint32_t switch_counter = 0;
-	for (;;) {
-
-		for (uint32_t d = 0; d < 8; d++) {
-			leds::set_ring(d,0,0,0);
-		}
-
-		leds::set_ring_synced((walk+0)&0x7,
-			gamma_curve[(eeprom_settings.ring_color>>16)&0xFF],
-			gamma_curve[(eeprom_settings.ring_color>> 8)&0xFF],
-			gamma_curve[(eeprom_settings.ring_color>> 0)&0xFF]
-		);
-		leds::set_ring_synced((walk+1)&0x7,
-			gamma_curve[(eeprom_settings.ring_color>>16)&0xFF],
-			gamma_curve[(eeprom_settings.ring_color>> 8)&0xFF],
-			gamma_curve[(eeprom_settings.ring_color>> 0)&0xFF]
-		);
-		leds::set_ring_synced((walk+2)&0x7,
-			gamma_curve[(eeprom_settings.ring_color>>16)&0xFF],
-			gamma_curve[(eeprom_settings.ring_color>> 8)&0xFF],
-			gamma_curve[(eeprom_settings.ring_color>> 0)&0xFF]
-		);
-
-		walk += switch_dir;
-
-		for (uint32_t d = 0; d < 4; d++) {
-			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
-		}
-
-		switch_counter ++;
-		if (switch_counter > 64 && random.get(0,2)) {
-			switch_dir *= -1;
-			switch_counter = 0;
-			walk += switch_dir;
-			walk += switch_dir;
-		}
-
-		delay(50);
-
-		spi::push_frame();
-		if (test_button()) {
-			return;
-		}
-	}
-}
-
-static void ring_bar_rotate() {
-	uint32_t rgb_walk = 0;
-	uint32_t walk = 0;
-	int32_t switch_dir = 1;
-	uint32_t switch_counter = 0;
-	for (;;) {
-
-		for (uint32_t d = 0; d < 8; d++) {
-			leds::set_ring(d,0,0,0);
-		}
-
-		leds::set_ring_synced((walk+0)&0x7,
-			gamma_curve[(eeprom_settings.ring_color>>16)&0xFF],
-			gamma_curve[(eeprom_settings.ring_color>> 8)&0xFF],
-			gamma_curve[(eeprom_settings.ring_color>> 0)&0xFF]
-		);
-		leds::set_ring_synced((walk+4)&0x7,
-			gamma_curve[(eeprom_settings.ring_color>>16)&0xFF],
-			gamma_curve[(eeprom_settings.ring_color>> 8)&0xFF],
-			gamma_curve[(eeprom_settings.ring_color>> 0)&0xFF]
-		);
-
-		walk += switch_dir;
-
-		rgb_walk += 7;
-		if (rgb_walk >= 360*3) {
-			rgb_walk = 0;
-		}
-
-		for (uint32_t d = 0; d < 4; d++) {
-			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
-		}
-
-		switch_counter ++;
-		if (switch_counter > 64 && random.get(0,2)) {
-			switch_dir *= -1;
-			switch_counter = 0;
-			walk += switch_dir;
-			walk += switch_dir;
-		}
-
-		delay(50);
-
-		spi::push_frame();
-		if (test_button()) {
-			return;
-		}
-	}
-}
-
-static void ring_bar_move() {
-	uint32_t rgb_walk = 0;
-	uint32_t walk = 0;
-	int32_t switch_dir = 1;
-	uint32_t switch_counter = 0;
-
-	static const int8_t indecies0[] = {
-		-1,
-		-1,
-		-1,
-		-1,
-		-1,
-		-1,
-		0,
-		1,
-		2,
-		3,
-		4
-		-1,
-		-1,
-		-1,
-		-1,
-		-1,
-	};
-
-	static const int8_t indecies1[] = {
-		-1,
-		-1,
-		-1,
-		-1,
-		-1,
-		-1,
-		0,
-		7,
-		6,
-		5,
-		4,
-		-1,
-		-1,
-		-1,
-		-1,
-		-1,
-	};
-
-	for (;;) {
-
-		for (uint32_t d = 0; d < 8; d++) {
-			leds::set_ring(d,0,0,0);
-		}
-
-		if (indecies0[(walk)%15] >=0 ) {
-				leds::set_ring_synced(indecies0[(walk)%15],
-				gamma_curve[(eeprom_settings.ring_color>>16)&0xFF],
-				gamma_curve[(eeprom_settings.ring_color>> 8)&0xFF],
-				gamma_curve[(eeprom_settings.ring_color>> 0)&0xFF]
-			);	
-		}
-		if (indecies1[(walk)%15] >=0 ) {
-			leds::set_ring_synced(indecies1[(walk)%15],
-				gamma_curve[(eeprom_settings.ring_color>>16)&0xFF],
-				gamma_curve[(eeprom_settings.ring_color>> 8)&0xFF],
-				gamma_curve[(eeprom_settings.ring_color>> 0)&0xFF]
-			);
-		}
-
-		walk += switch_dir;
-
-		rgb_walk += 7;
-		if (rgb_walk >= 360*3) {
-			rgb_walk = 0;
-		}
-
-		for (uint32_t d = 0; d < 4; d++) {
-			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
-		}
-
-		switch_counter ++;
-		if (switch_counter > 64 && random.get(0,2)) {
-			switch_dir *= -1;
-			switch_counter = 0;
-			walk += switch_dir;
-			walk += switch_dir;
-		}
-
-		delay(50);
-
-		spi::push_frame();
-		if (test_button()) {
-			return;
-		}
-	}
-}
-
-static void rgb_vertical_wall() {
-	uint32_t rgb_walk = 0;
-	for (;;) {
-
-		rgb_color color;
-		color = hsvToRgb(((rgb_walk+  0)/3)%360, 255, 255);
-		leds::set_ring_synced(0, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
-		color = hsvToRgb(((rgb_walk+ 30)/3)%360, 255, 255);
-		leds::set_ring_synced(1, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
-		leds::set_ring_synced(7, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
-		color = hsvToRgb(((rgb_walk+120)/3)%360, 255, 255);
-		leds::set_ring_synced(2, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
-		leds::set_ring_synced(6, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
-		color = hsvToRgb(((rgb_walk+210)/3)%360, 255, 255);
-		leds::set_ring_synced(3, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
-		leds::set_ring_synced(5, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
-		color = hsvToRgb(((rgb_walk+230)/3)%360, 255, 255);
-		leds::set_ring_synced(4, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
-
-		rgb_walk += 7;
-		if (rgb_walk >= 360*3) {
-			rgb_walk = 0;
-		}
-
-		for (uint32_t d = 0; d < 4; d++) {
-			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
-		}
-
-		delay(40);
-
-		spi::push_frame();
-		if (test_button()) {
-			return;
-		}
-	}
-}
-
-static void shine_vertical() {
-	uint32_t rgb_walk = 0;
-	rgb_color gradient[256];
-	for (uint32_t c = 0; c < 128; c++) {
-		uint32_t r = max((eeprom_settings.ring_color>>16)&0xFF,c/2);
-		uint32_t g = max((eeprom_settings.ring_color>> 8)&0xFF,c/2);
-		uint32_t b = max((eeprom_settings.ring_color>> 0)&0xFF,c/2);
-		gradient[c] = rgb_color(r, g, b);
-	}
-	for (uint32_t c = 0; c < 128; c++) {
-		uint32_t r = max((eeprom_settings.ring_color>>16)&0xFF,(128-c)/2);
-		uint32_t g = max((eeprom_settings.ring_color>> 8)&0xFF,(128-c)/2);
-		uint32_t b = max((eeprom_settings.ring_color>> 0)&0xFF,(128-c)/2);
-		gradient[c+128] = rgb_color(r, g, b);
-	}
-
-	for (;;) {
-		rgb_color color;
-		color = gradient[((rgb_walk+ 0))%256];
-		leds::set_ring_synced(0, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
-		color = gradient[((rgb_walk+10))%256];
-		leds::set_ring_synced(1, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
-		leds::set_ring_synced(7, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
-		color = gradient[((rgb_walk+40))%256];
-		leds::set_ring_synced(2, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
-		leds::set_ring_synced(6, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
-		color = gradient[((rgb_walk+70))%256];
-		leds::set_ring_synced(3, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
-		leds::set_ring_synced(5, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
-		color = gradient[((rgb_walk+80))%256];
-		leds::set_ring_synced(4, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
-
-		rgb_walk += 7;
-		if (rgb_walk >= 256) {
-			rgb_walk = 0;
-		}
-
-		for (uint32_t d = 0; d < 4; d++) {
-			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
-		}
-
-		delay(80);
-
-		spi::push_frame();
-		if (test_button()) {
-			return;
-		}
-	}
-}
-
-static void shine_horizontal() {
-	int32_t rgb_walk = 0;
-	int32_t switch_dir = 1;
-
-	rgb_color gradient[256];
-	for (uint32_t c = 0; c < 128; c++) {
-		uint32_t r = max((eeprom_settings.ring_color>>16)&0xFF,c/2);
-		uint32_t g = max((eeprom_settings.ring_color>> 8)&0xFF,c/2);
-		uint32_t b = max((eeprom_settings.ring_color>> 0)&0xFF,c/2);
-		gradient[c] = rgb_color(r, g, b);
-	}
-	for (uint32_t c = 0; c < 128; c++) {
-		uint32_t r = max((eeprom_settings.ring_color>>16)&0xFF,(128-c)/2);
-		uint32_t g = max((eeprom_settings.ring_color>> 8)&0xFF,(128-c)/2);
-		uint32_t b = max((eeprom_settings.ring_color>> 0)&0xFF,(128-c)/2);
-		gradient[c+128] = rgb_color(r, g, b);
-	}
-
-	for (;;) {
-		rgb_color color;
-		color = gradient[((rgb_walk+ 0))%256];
-		leds::set_ring_synced(6, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
-		color = gradient[((rgb_walk+10))%256];
-		leds::set_ring_synced(7, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
-		leds::set_ring_synced(5, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
-		color = gradient[((rgb_walk+40))%256];
-		leds::set_ring_synced(0, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
-		leds::set_ring_synced(4, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
-		color = gradient[((rgb_walk+70))%256];
-		leds::set_ring_synced(1, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
-		leds::set_ring_synced(3, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
-		color = gradient[((rgb_walk+80))%256];
-		leds::set_ring_synced(2, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
-
-		rgb_walk += 7*switch_dir;
-		if (rgb_walk >= 256) {
-			rgb_walk = 255;
-			switch_dir *= -1;
-		}
-		if (rgb_walk < 0) {
-			rgb_walk = 0;
-			switch_dir *= -1;
-		}
-
-		for (uint32_t d = 0; d < 4; d++) {
-			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
-		}
-
-		delay(80);
-
-		spi::push_frame();
-		if (test_button()) {
-			return;
-		}
-	}
-}
-
-static void rgb_horizontal_wall() {
-	uint32_t rgb_walk = 0;
-	for (;;) {
-
-		rgb_color color;
-		color = hsvToRgb(((rgb_walk+  0)/3)%360, 255, 255);
-		leds::set_ring_synced(6, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
-		color = hsvToRgb(((rgb_walk+ 30)/3)%360, 255, 255);
-		leds::set_ring_synced(7, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
-		leds::set_ring_synced(5, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
-		color = hsvToRgb(((rgb_walk+120)/3)%360, 255, 255);
-		leds::set_ring_synced(0, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
-		leds::set_ring_synced(4, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
-		color = hsvToRgb(((rgb_walk+210)/3)%360, 255, 255);
-		leds::set_ring_synced(1, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
-		leds::set_ring_synced(3, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
-		color = hsvToRgb(((rgb_walk+230)/3)%360, 255, 255);
-		leds::set_ring_synced(2, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
-
-		rgb_walk += 7;
-		if (rgb_walk >= 360*3) {
-			rgb_walk = 0;
-		}
-
-		for (uint32_t d = 0; d < 4; d++) {
-			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
-		}
-
-		delay(40);
-
-		spi::push_frame();
-		if (test_button()) {
-			return;
-		}
-	}
-}
-
-static void lightning() {
-	for (;;) {
-
-		for (uint32_t d = 0; d < 8; d++) {
-			leds::set_ring(d, 0,0,0);
-		}
-
-		int index = random.get(0,128);
-		leds::set_ring_all(index,0x40,0x40,0x40);
-
-		for (uint32_t d = 0; d < 4; d++) {
-			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
-		}
-
-		delay(10);
-
-		spi::push_frame();
-		if (test_button()) {
-			return;
-		}
-	}
-}
-
-static void sparkle() {
-	for (;;) {
-
-		for (uint32_t d = 0; d < 8; d++) {
-			leds::set_ring(d, 0,0,0);
-		}
-
-		int index = random.get(0,16);
-		leds::set_ring_all(index,random.get(0x00,0x10),random.get(0x00,0x10),random.get(0,0x10));
-
-		for (uint32_t d = 0; d < 4; d++) {
-			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
-		}
-
-		delay(50);
-
-		spi::push_frame();
-		if (test_button()) {
-			return;
-		}
-	}
-}
-
-static void lightning_crazy() {
-	for (;;) {
-
-		for (uint32_t d = 0; d < 8; d++) {
-			leds::set_ring(d, 0,0,0);
-		}
-
-		int index = random.get(0,16);
-		leds::set_ring_all(index,0x40,0x40,0x40);
-
-		for (uint32_t d = 0; d < 4; d++) {
-			leds::set_bird(d, gamma_curve[(eeprom_settings.bird_color>>16)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 8)&0xFF],
-					 		  gamma_curve[(eeprom_settings.bird_color>> 0)&0xFF]);
-		}
-
-		delay(10);
-
-		spi::push_frame();
-		if (test_button()) {
-			return;
-		}
-	}
-}
-
-static void heartbeat() {
-	int32_t rgb_walk = 0;
-	int32_t switch_dir = 1;
-	for (; ;) {
-		for (uint32_t d = 0; d < 8; d++) {
-			leds::set_ring(d, gamma_curve[((eeprom_settings.ring_color>>16)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.ring_color>> 8)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.ring_color>> 0)&0xFF)]);
-		}
-
-		for (uint32_t d = 0; d < 4; d++) {
-			leds::set_bird(d, gamma_curve[(((eeprom_settings.bird_color>>16)&0xFF)*rgb_walk)/256],
-					 		  gamma_curve[(((eeprom_settings.bird_color>> 8)&0xFF)*rgb_walk)/256],
-					 		  gamma_curve[(((eeprom_settings.bird_color>> 0)&0xFF)*rgb_walk)/256]);
-		}
-
-		rgb_walk += switch_dir;
-		if (rgb_walk >= 256) {
-			rgb_walk = 255;
-			switch_dir *= -1;
-		}
-		if (rgb_walk < 0) {
-			rgb_walk = 0;
-			switch_dir *= -1;
-		}
-
-		delay(8);
-		spi::push_frame();
-		if (test_button()) {
-			return;
-		}
-	}
-}
-
-static void brilliance() {
-	int32_t current_wait = 0;
-	int32_t wait_time = 0;
-	int32_t rgb_walk = 0;
-	int32_t switch_dir = 1;
-	for (; ;) {
-		rgb_color gradient[256];
-		for (int32_t c = 0; c < 112; c++) {
-			uint32_t r = (eeprom_settings.bird_color>>16)&0xFF;
-			uint32_t g = (eeprom_settings.bird_color>> 8)&0xFF;
-			uint32_t b = (eeprom_settings.bird_color>> 0)&0xFF;
-			gradient[c] = rgb_color(r, g, b);
-		}
-		for (uint32_t c = 0; c < 16; c++) {
-			uint32_t r = max((eeprom_settings.bird_color>>16)&0xFF,c*8);
-			uint32_t g = max((eeprom_settings.bird_color>> 8)&0xFF,c*8);
-			uint32_t b = max((eeprom_settings.bird_color>> 0)&0xFF,c*8);
-			gradient[c+112] = rgb_color(r, g, b);
-		}
-		for (uint32_t c = 0; c < 16; c++) {
-			uint32_t r = max((eeprom_settings.bird_color>>16)&0xFF,(16-c)*8);
-			uint32_t g = max((eeprom_settings.bird_color>> 8)&0xFF,(16-c)*8);
-			uint32_t b = max((eeprom_settings.bird_color>> 0)&0xFF,(16-c)*8);
-			gradient[c+128] = rgb_color(r, g, b);
-		}
-		for (int32_t c = 0; c < 112; c++) {
-			uint32_t r = (eeprom_settings.bird_color>>16)&0xFF;
-			uint32_t g = (eeprom_settings.bird_color>> 8)&0xFF;
-			uint32_t b = (eeprom_settings.bird_color>> 0)&0xFF;
-			gradient[c+144] = rgb_color(r, g, b);
-		}
-
-
-		for (uint32_t d = 0; d < 8; d++) {
-			leds::set_ring(d, gamma_curve[((eeprom_settings.ring_color>>16)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.ring_color>> 8)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.ring_color>> 0)&0xFF)]);
-		}
-
-		for (uint32_t d = 0; d < 4; d++) {
-			rgb_color color = gradient[((rgb_walk+ 0))%256];
-			leds::set_bird(d, gamma_curve[((color.red)&0xFF)], 
-							  gamma_curve[((color.green)&0xFF)], 
-							  gamma_curve[((color.blue)&0xFF)]);
-		}
-
-		rgb_walk += switch_dir;
-		if (rgb_walk >= 256) {
-			current_wait++;
-			if (current_wait > wait_time) {
-				wait_time = random.get(0,2000);
-				rgb_walk = 0;
-				current_wait = 0;
-			} else {
-				rgb_walk = 255;
-			}
-		}
-
-		delay(10);
-		spi::push_frame();
-		if (test_button()) {
-			return;
-		}
-	}
-}
-
-static void tingling() {
-	#define NUM_TINGLES 16
-	struct tingle {
-		bool active;
-		int32_t wait;
-		int32_t index;
-		uint32_t progress;
-		bool lightordark;
-	} tingles[NUM_TINGLES] = {0};
-
-	for (; ;) {
-
-		for (uint32_t d = 0; d < 8; d++) {
-			leds::set_ring(d, gamma_curve[((eeprom_settings.ring_color>>16)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.ring_color>> 8)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.ring_color>> 0)&0xFF)]);
-		}
-
-		for (uint32_t d = 0; d < 4; d++) {
-			leds::set_bird(d, gamma_curve[((eeprom_settings.bird_color>>16)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.bird_color>> 8)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.bird_color>> 0)&0xFF)]);
-		}
-
-		for (int32_t c = 0 ; c < NUM_TINGLES; c++) {
-			if (tingles[c].active == 0) {
-				tingles[c].wait = random.get(0,25);
-				for (;;) {
-					bool done = true;
-					tingles[c].index = random.get(0,16);
-					for (int32_t d = 0 ; d < NUM_TINGLES; d++) {
-						if( d != c && 
-							tingles[c].active && 
-							tingles[c].index == tingles[d].index) {
-							done = false;
-							break;
-						}
-					}
-					if (done) {
-						break;
-					}
-				}
-				tingles[c].index = random.get(0,16);
-				tingles[c].progress = 0;
-				tingles[c].lightordark = random.get(0,2);
-				tingles[c].active = 1;
-			} else if (tingles[c].progress >= 16) {
-				tingles[c].active = 0;
-			} else if (tingles[c].wait > 0) {
-				tingles[c].wait --;
-			} else {
-				uint32_t r = 0,g = 0,b = 0;
-				uint32_t progress = tingles[c].progress;
-				if (progress > 8) {
-					progress -= 8;
-					progress = 8 - progress;
-				}
-				if (tingles[c].lightordark) {
-					r = max((eeprom_settings.ring_color>>16)&0xFF,progress*8);
-					g = max((eeprom_settings.ring_color>> 8)&0xFF,progress*8);
-					b = max((eeprom_settings.ring_color>> 0)&0xFF,progress*8);					
-				} else {
-					r = ((eeprom_settings.ring_color>>16)&0xFF)-progress*8;
-					g = ((eeprom_settings.ring_color>> 8)&0xFF)-progress*8;
-					b = ((eeprom_settings.ring_color>> 0)&0xFF)-progress*8;
-					r = max(r,0UL);
-					g = max(g,0UL);
-					b = max(b,0UL);					
-				}
-				leds::set_ring_all(tingles[c].index, gamma_curve[r], 
-								  				 gamma_curve[g], 
-								  				 gamma_curve[b]);
-				tingles[c].progress++;
-			}
-		}
-
-		delay(20);
-		spi::push_frame();
-		if (test_button()) {
-			return;
-		}
-	}
-}
-
-
-static void twinkle() {
-	#define NUM_TWINKLE 3
-	struct tingle {
-		bool active;
-		int32_t wait;
-		int32_t index;
-		uint32_t progress;
-	} tingles[NUM_TWINKLE] = {0};
-
-	for (; ;) {
-
-		for (uint32_t d = 0; d < 8; d++) {
-			leds::set_ring(d, gamma_curve[((eeprom_settings.ring_color>>16)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.ring_color>> 8)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.ring_color>> 0)&0xFF)]);
-		}
-
-		for (uint32_t d = 0; d < 4; d++) {
-			leds::set_bird(d, gamma_curve[((eeprom_settings.bird_color>>16)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.bird_color>> 8)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.bird_color>> 0)&0xFF)]);
-		}
-
-		for (int32_t c = 0 ; c < NUM_TWINKLE; c++) {
-			if (tingles[c].active == 0) {
-				tingles[c].wait = random.get(0,50);
-				for (;;) {
-					bool done = true;
-					tingles[c].index = random.get(0,16);
-					for (int32_t d = 0 ; d < NUM_TWINKLE; d++) {
-						if( d != c && 
-							tingles[c].active && 
-							tingles[c].index == tingles[d].index) {
-							done = false;
-							break;
-						}
-					}
-					if (done) {
-						break;
-					}
-				}
-				tingles[c].index = random.get(0,16);
-				tingles[c].progress = 0;
-				tingles[c].active = 1;
-			} else if (tingles[c].progress >= 16) {
-				tingles[c].active = 0;
-			} else if (tingles[c].wait > 0) {
-				tingles[c].wait --;
-			} else {
-				uint32_t r = 0,g = 0,b = 0;
-				uint32_t progress = tingles[c].progress;
-				if (progress > 8) {
-					progress -= 8;
-					progress = 8 - progress;
-				}
-
-				r = max((eeprom_settings.ring_color>>16)&0xFF,progress*16);
-				g = max((eeprom_settings.ring_color>> 8)&0xFF,progress*16);
-				b = max((eeprom_settings.ring_color>> 0)&0xFF,progress*16);					
-				leds::set_ring_all(tingles[c].index, gamma_curve[r], 
-								  				 gamma_curve[g], 
-								  				 gamma_curve[b]);
-				tingles[c].progress++;
-			}
-		}
-
-		delay(50);
-		spi::push_frame();
-		if (test_button()) {
-			return;
-		}
-	}
-}
-
-static void simple_change_ring() {
-
-	int32_t color_index = -1;
-
-	int32_t index = 0;
-
-	int32_t r = random.get(0x00,0x40);
-	int32_t g = random.get(0x00,0x40);
-	int32_t b = random.get(0x00,0x40);
-	int32_t cr = 0;
-	int32_t cg = 0;
-	int32_t cb = 0;
-	int32_t nr = 0;
-	int32_t ng = 0;
-	int32_t nb = 0;
-
-	for (; ;) {
-
-		if (index >= 600) {
-			if (index == 600) {
-				cr = r;
-				cg = g;
-				cb = b;
-				nr = random.get(0x00,0x40);
-				ng = random.get(0x00,0x40);
-				nb = random.get(0x00,0x40);
-			}
-			if (index >= 664) {
-				index = 0;
-			} else {
-				int32_t lft = index-600;
-				int32_t rgt = 64-lft;
-				r = (nr*lft + cr*rgt) / 64;
-				g = (ng*lft + cg*rgt) / 64;
-				b = (nb*lft + cb*rgt) / 64;
-				index++;
-			}
-		} else {
-			index++;
-		}
-
-		for (uint32_t d = 0; d < 8; d++) {
-			leds::set_ring(d, gamma_curve[r],
-					 		  gamma_curve[g],
-					 		  gamma_curve[b]);
-		}
-
-		for (uint32_t d = 0; d < 4; d++) {
-			leds::set_bird(d, gamma_curve[((eeprom_settings.bird_color>>16)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.bird_color>> 8)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.bird_color>> 0)&0xFF)]);
-		}
-
-		delay(15);
-		spi::push_frame();
-		if (test_button()) {
-			return;
-		}
-	}
-}
-
-static void simple_change_bird() {
-
-	int32_t color_index = -1;
-
-	int32_t index = 0;
-
-	int32_t r = random.get(0x00,0x40);
-	int32_t g = random.get(0x00,0x40);
-	int32_t b = random.get(0x00,0x40);
-	int32_t cr = 0;
-	int32_t cg = 0;
-	int32_t cb = 0;
-	int32_t nr = 0;
-	int32_t ng = 0;
-	int32_t nb = 0;
-
-	for (; ;) {
-
-		if (index >= 600) {
-			if (index == 600) {
-				cr = r;
-				cg = g;
-				cb = b;
-				nr = random.get(0x00,0x40);
-				ng = random.get(0x00,0x40);
-				nb = random.get(0x00,0x40);
-			}
-			if (index >= 664) {
-				index = 0;
-			} else {
-				int32_t lft = index-600;
-				int32_t rgt = 64-lft;
-				r = (nr*lft + cr*rgt) / 64;
-				g = (ng*lft + cg*rgt) / 64;
-				b = (nb*lft + cb*rgt) / 64;
-				index++;
-			}
-		} else {
-			index++;
-		}
-
-		for (uint32_t d = 0; d < 8; d++) {
-			leds::set_ring(d, gamma_curve[((eeprom_settings.ring_color>>16)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.ring_color>> 8)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.ring_color>> 0)&0xFF)]);
-		}
-
-		for (uint32_t d = 0; d < 4; d++) {
-			leds::set_bird(d, gamma_curve[r],
-					 		  gamma_curve[g],
-					 		  gamma_curve[b]);
-		}
-
-		delay(15);
-		spi::push_frame();
-		if (test_button()) {
-			return;
-		}
-	}
-}
-
-static void simple_random() {
-
-	rgb_color colors[16];
-	for (int32_t c = 0; c<16; c++) {
-		colors[c].red = random.get(0x00,0x40);
-		colors[c].green = random.get(0x00,0x40);
-		colors[c].blue = random.get(0x00,0x40);
-	}
-
-	for (; ;) {
-
-		uint32_t index = random.get(0x00,0x10);
-		colors[index].red = random.get(0x00,0x40);
-		colors[index].green = random.get(0x00,0x40);
-		colors[index].blue = random.get(0x00,0x40);
-
-		for (uint32_t d = 0; d < 16; d++) {
-			leds::set_ring_all(d, gamma_curve[colors[d].red],
-					 		      gamma_curve[colors[d].green],
-					 		      gamma_curve[colors[d].blue]);
-		}
-
-		for (uint32_t d = 0; d < 4; d++) {
-			leds::set_bird(d, gamma_curve[((eeprom_settings.bird_color>>16)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.bird_color>> 8)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.bird_color>> 0)&0xFF)]);
-		}
-
-		delay(20);
-		spi::push_frame();
-		if (test_button()) {
-			return;
-		}
-	}
-}
-
-static void diagonal_wipe() {
-
-	int32_t walk = 0;
-	int32_t wait = random.get(60,1500);
-	int32_t dir = random.get(0,2);
-
-	for (; ;) {
-		for (uint32_t d = 0; d < 8; d++) {
-			leds::set_ring(d, gamma_curve[((eeprom_settings.ring_color>>16)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.ring_color>> 8)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.ring_color>> 0)&0xFF)]);
-		}
-
-		for (uint32_t d = 0; d < 4; d++) {
-			leds::set_bird(d, gamma_curve[((eeprom_settings.bird_color>>16)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.bird_color>> 8)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.bird_color>> 0)&0xFF)]);
-		}
-
-		int32_t i0 = -1;
-		int32_t i1 = -1;
-
-		if (dir) {
-			if (walk < 10) {
-				i0 = 7;
-				i1 = 7;
-			} else if (walk < 20) {
-				i0 = 0;
-				i1 = 6;
-			} else if (walk < 30) {
-				i0 = 1;
-				i1 = 5;
-			} else if (walk < 40) {
-				i0 = 2;
-				i1 = 4;
-			} else if (walk < 50) {
-				i0 = 3;
-				i1 = 3;
-			} else {
-				i0 = -1;
-				i1 = -1;
-			}	
-		} else {
-			if (walk < 10) {
-				i0 = 1;
-				i1 = 1;
-			} else if (walk < 20) {
-				i0 = 0;
-				i1 = 2;
-			} else if (walk < 30) {
-				i0 = 7;
-				i1 = 3;
-			} else if (walk < 40) {
-				i0 = 6;
-				i1 = 4;
-			} else if (walk < 50) {
-				i0 = 5;
-				i1 = 5;
-			} else {
-				i0 = -1;
-				i1 = -1;
-			}	
-		}
-		
-		walk ++;
-		if (walk > wait) {
-			walk = 0;
-			wait = random.get(60,1024);
-			dir = random.get(0,2);
-		}
-
-		if (i0 >= 0) leds::set_ring_synced(i0, 0x40,0x40,0x40);
-		if (i1 >= 0) leds::set_ring_synced(i1, 0x40,0x40,0x40);
-
-		delay(5);
-		spi::push_frame();
-		if (test_button()) {
-			return;
-		}
-	}
-}
-
-static void shimmer_outside() {
-	int32_t walk = 0;
-	int32_t wait = random.get(16,64);
-	int32_t dir = random.get(0,2);
-
-	for (; ;) {
-
-		rgb_color color = rgb_color(((eeprom_settings.ring_color>>16)&0xFF),
-								  ((eeprom_settings.ring_color>> 8)&0xFF),
-								  ((eeprom_settings.ring_color>> 0)&0xFF));
-
-		for (uint32_t d = 0; d < 4; d++) {
-			leds::set_bird(d, gamma_curve[((eeprom_settings.bird_color>>16)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.bird_color>> 8)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.bird_color>> 0)&0xFF)]);
-		}
-
-		int32_t r = color.red;
-		int32_t g = color.green;
-		int32_t b = color.blue;
-		if (walk < 8) {
-			r = max(int32_t(0),r - int32_t(walk));
-			g = max(int32_t(0),g - int32_t(walk));
-			b = max(int32_t(0),b - int32_t(walk));
-		} else if (walk < 16) {
-			r = max(int32_t(0),r - int32_t((8-(walk-8))));
-			g = max(int32_t(0),g - int32_t((8-(walk-8))));
-			b = max(int32_t(0),b - int32_t((8-(walk-8))));
-		}
-
-		for (uint32_t d = 0; d < 8; d++) {
-			leds::set_ring(d, gamma_curve[r],
-					 		  gamma_curve[g],
-					 		  gamma_curve[b]);
-		}
-		
-		walk ++;
-		if (walk > wait) {
-			walk = 0;
-			wait = random.get(16,64);
-
-		}
-
-		delay(2);
-		spi::push_frame();
-		if (test_button()) {
-			return;
-		}
-	}
-}
-
-static void shimmer_inside() {
-	int32_t walk = 0;
-	int32_t wait = random.get(16,64);
-	int32_t dir = random.get(0,2);
-
-	for (; ;) {
-
-		rgb_color color = rgb_color(((eeprom_settings.bird_color>>16)&0xFF),
-								    ((eeprom_settings.bird_color>> 8)&0xFF),
-								    ((eeprom_settings.bird_color>> 0)&0xFF));
-
-		for (uint32_t d = 0; d < 8; d++) {
-			leds::set_ring(d, gamma_curve[((eeprom_settings.ring_color>>16)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.ring_color>> 8)&0xFF)],
-					 		  gamma_curve[((eeprom_settings.ring_color>> 0)&0xFF)]);
-		}
-
-		int32_t r = color.red;
-		int32_t g = color.green;
-		int32_t b = color.blue;
-		if (walk < 8) {
-			r = max(int32_t(0),r - int32_t(walk));
-			g = max(int32_t(0),g - int32_t(walk));
-			b = max(int32_t(0),b - int32_t(walk));
-		} else if (walk < 16) {
-			r = max(int32_t(0),r - int32_t((8-(walk-8))));
-			g = max(int32_t(0),g - int32_t((8-(walk-8))));
-			b = max(int32_t(0),b - int32_t((8-(walk-8))));
-		}
-
-		for (uint32_t d = 0; d < 4; d++) {
-			leds::set_bird(d, gamma_curve[r],
-					 		  gamma_curve[g],
-					 		  gamma_curve[b]);
-		}
-		
-		walk ++;
-		if (walk > wait) {
-			walk = 0;
-			wait = random.get(16,64);
-
-		}
-
-		delay(10);
-		spi::push_frame();
-		if (test_button()) {
-			return;
-		}
-	}
-}
-
-static void red() {
-
-	int32_t wait = 1200;
-
-	int32_t index = 0;
-
-	int32_t br = ((eeprom_settings.bird_color>>16)&0xFF);
-	int32_t bg = ((eeprom_settings.bird_color>> 8)&0xFF);
-	int32_t bb = ((eeprom_settings.bird_color>> 0)&0xFF);
-
-	int32_t rr = ((eeprom_settings.ring_color>>16)&0xFF);
-	int32_t rg = ((eeprom_settings.ring_color>> 8)&0xFF);
-	int32_t rb = ((eeprom_settings.ring_color>> 0)&0xFF);
-
-	int32_t b1r = br;
-	int32_t b1g = bg;
-	int32_t b1b = bb;
-
-	int32_t r1r = rr;
-	int32_t r1g = rg;
-	int32_t r1b = rb;
-
-	for (; ;) {
-
-		if (index >= 0) {
-			if (index >= wait) {
-				wait = random.get(1200,10000);
-				index = 0;
-			} else if (index >= 0 && index < 64) {
-				int32_t rgt = index-0;
-				int32_t lft = 64-rgt;
-				b1r = (br*lft + 0x40*rgt) / 64;
-				b1g = (bg*lft + 0x00*rgt) / 64;
-				b1b = (bb*lft + 0x10*rgt) / 64;
-				r1r = (rr*lft + 0x40*rgt) / 64;
-				r1g = (rg*lft + 0x00*rgt) / 64;
-				r1b = (rb*lft + 0x10*rgt) / 64;
-				index++;
-			} else if (index >= 600 && index < 664) {
-				int32_t lft = index-600;
-				int32_t rgt = 64-lft;
-				b1r = (br*lft + 0x40*rgt) / 64;
-				b1g = (bg*lft + 0x00*rgt) / 64;
-				b1b = (bb*lft + 0x10*rgt) / 64;
-				r1r = (rr*lft + 0x40*rgt) / 64;
-				r1g = (rg*lft + 0x00*rgt) / 64;
-				r1b = (rb*lft + 0x10*rgt) / 64;
-				index++;
-			} else {
-				index++;
-			}
-		} else {
-			index++;
-		}
-
-		for (uint32_t d = 0; d < 8; d++) {
-			leds::set_ring(d, gamma_curve[r1r],
-					 		  gamma_curve[r1g],
-					 		  gamma_curve[r1b]);
-		}
-
-		for (uint32_t d = 0; d < 4; d++) {
-			leds::set_bird(d, gamma_curve[b1r],
-					 		  gamma_curve[b1g],
-					 		  gamma_curve[b1b]);
-		}
-
-		delay(20);
-		spi::push_frame();
-		if (test_button()) {
-			return;
-		}
-	}
-}
 
 #ifndef NO_SX1280
 class SX1280 {
@@ -3972,12 +2638,18 @@ class SDD1306 {
 				present = false;
 				Clear();
 			}
+			
+			void FillScreenByScanline(std::function<void (uint32_t y, uint8_t *ptr, uint32_t width, uint32_t height)> func) {
+				for (uint32_t c = 0; c < height; c++) {
+					func(c, &buffer[(c*(width/8+1))+1], width, height);
+				}
+			}
 
 			void Clear(uint32_t value = 0) {
 				for (uint32_t c = 0; c < height; c++) {
-					buffer[(c*(width+1))] = 0x40;
+					buffer[(c*(width/8+1))] = 0x40;
 					for (uint32_t d = 0; d < width; d++) {
-						buffer[(c*(width+1))+d+1] = value;
+						buffer[(c*(width/8+1))+d+1] = value;
 					}
 				}
 			}
@@ -4074,7 +2746,7 @@ class SDD1306 {
 
 			bool present;
 
-			uint8_t buffer[(width + 1) * height / 8];
+			uint8_t buffer[(width/8 + 1) * height];
 
 } sdd1306;
 
@@ -4166,9 +2838,1261 @@ class Setup {
 
 } setup;
 
-static uint8_t screen_data[256] = { 0 };
-
 };
+
+static void advance_mode(uint32_t mode) {
+	switch(mode) {
+		case	0:
+				eeprom_settings.bird_color_index++; 
+				eeprom_settings.bird_color_index %= 20; 
+				eeprom_settings.bird_color = bird_colors[eeprom_settings.bird_color_index];
+				break;
+		case	1:
+				eeprom_settings.ring_color_index++; 
+				eeprom_settings.ring_color_index %= 20; 
+				eeprom_settings.ring_color = ring_colors[eeprom_settings.ring_color_index];
+				break;
+	}
+}
+
+static void config_mode() {
+}
+
+static bool test_button() {
+	static uint32_t last_config_time = 0;
+	// Don't take into account this button press if we just
+	// came out of configuration
+	if ((system_clock_ms - last_config_time) < 1000) {
+		return false;
+	}
+	if (Chip_GPIO_ReadPortBit(LPC_GPIO, 0, 2)) {
+		uint32_t d_time = system_clock_ms;
+		delay(100);
+		for (;Chip_GPIO_ReadPortBit(LPC_GPIO, 0, 2);) {
+			uint32_t u_time = system_clock_ms;
+			// long press > 2 seconds gets us into config mode
+			if ((u_time - d_time) > 2000) {
+				config_mode();
+				last_config_time = system_clock_ms;
+				return false;
+			}
+		}
+		// advance program if we did not end up in config mode
+		eeprom_settings.program_curr++;
+		eeprom_settings.program_change_count++;
+		if (eeprom_settings.program_curr >= eeprom_settings.program_count) {
+			eeprom_settings.program_curr = 0;
+		}
+#ifdef NO_SX1280
+		printf("Setting program #%d\n", eeprom_settings.program_curr);
+#endif  // #ifdef NO_SX1280
+		eeprom_settings.save();
+		return true;
+	}
+	return false;
+}
+
+static bool post_frame(uint32_t ms) {
+	delay(ms);
+	spi.push_frame();
+	return test_button();
+}
+
+static void color_ring() {
+	for (; ;) {
+		for (uint32_t d = 0; d < 8; d++) {
+			leds.set_ring(d, eeprom_settings.ring_color.gamma());
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds.set_bird(d, eeprom_settings.bird_color.gamma());
+		}
+
+		if (post_frame(5)) {
+			return;
+		}
+	}
+}
+
+static void fade_ring() {
+	for (; ;) {
+		rgb_color color;
+		uint32_t col = eeprom_settings.ring_color.rgb;
+		color = rgb_color(max(((col>>16)&0xFF)-0x20UL,0UL), max(((col>> 8)&0xFF)-0x20UL,0UL), max(((col>> 0)&0xFF)-0x20UL,0UL));
+		leds.set_ring(0, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
+		color = rgb_color(max(((col>>16)&0xFF)-0x1AUL,0UL), max(((col>> 8)&0xFF)-0x1AUL,0UL), max(((col>> 0)&0xFF)-0x1AUL,0UL));
+		leds.set_ring(1, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
+		leds.set_ring(7, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
+		color = rgb_color(max(((col>>16)&0xFF)-0x18UL,0UL), max(((col>> 8)&0xFF)-0x18UL,0UL), max(((col>> 0)&0xFF)-0x18UL,0UL));
+		leds.set_ring(2, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
+		leds.set_ring(6, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
+		color = rgb_color(max(((col>>16)&0xFF)-0x10UL,0UL), max(((col>> 8)&0xFF)-0x10UL,0UL), max(((col>> 0)&0xFF)-0x10UL,0UL));
+		leds.set_ring(3, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
+		leds.set_ring(5, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
+		color = rgb_color(max(((col>>16)&0xFF)-0x00UL,0UL), max(((col>> 8)&0xFF)-0x00UL,0UL), max(((col>> 0)&0xFF)-0x00UL,0UL));
+		leds.set_ring(4, gamma_curve[color.red],  gamma_curve[color.green], gamma_curve[color.blue]);
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds.set_bird(d, eeprom_settings.bird_color.gamma());
+		}
+
+		if (post_frame(5)) {
+			return;
+		}
+	}
+}
+
+static void rgb_walker() {
+
+	static uint8_t work_buffer[0x80] = { 0 };
+
+	for (uint32_t c = 0; c < 0x80; c++) {
+		work_buffer[c] = max(0UL,(sine_wave[c] - 0x80UL) - 0x20UL) ;
+	}
+
+	uint32_t walk = 0;
+	uint32_t rgb_walk = 0;
+	uint32_t flash = 0;
+	for (;;) {
+
+		rgb_color color = hsvToRgb(rgb_walk/3, 255, 255);
+		for (uint32_t d = 0; d < 8; d++) {
+			leds.set_ring(d, gamma_curve[(work_buffer[(((0x80/8)*d) + walk)&0x7F] * ((color.red)&0xFF)) >> 8],
+					 	      gamma_curve[(work_buffer[(((0x80/8)*d) + walk)&0x7F] * ((color.green)&0xFF)) >> 8],
+					 		  gamma_curve[(work_buffer[(((0x80/8)*d) + walk)&0x7F] * ((color.blue)&0xFF)) >> 8]);
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds.set_bird(d, eeprom_settings.bird_color.gamma());
+		}
+
+		walk ++;
+		walk &= 0x7F;
+
+		rgb_walk ++;
+		if (rgb_walk >= 360*3) {
+			rgb_walk = 0;
+		}
+
+		if (post_frame(5)) {
+			return;
+		}
+	}
+}
+static void rgb_glow() {
+	uint32_t rgb_walk = 0;
+	uint32_t walk = 0;
+	int32_t switch_dir = 1;
+	uint32_t switch_counter = 0;
+	for (;;) {
+
+		rgb_color color = hsvToRgb(rgb_walk, 255, 255);
+		for (uint32_t d = 0; d < 8; d++) {
+			leds.set_ring_synced(d,
+				gamma_curve[((color.red)&0xFF)/4],
+				gamma_curve[((color.green)&0xFF)/4],
+				gamma_curve[((color.blue)&0xFF)/4]
+			);
+		}
+		
+		rgb_walk ++;
+		if (rgb_walk >= 360) {
+			rgb_walk = 0;
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds.set_bird(d, eeprom_settings.bird_color.gamma());
+		}
+
+		if (post_frame(50)) {
+			return;
+		}
+	}
+}
+
+static void rgb_tracer() {
+	uint32_t rgb_walk = 0;
+	uint32_t walk = 0;
+	int32_t switch_dir = 1;
+	uint32_t switch_counter = 0;
+	for (;;) {
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds.set_ring(d,0,0,0);
+		}
+
+		rgb_color color = hsvToRgb(rgb_walk/3, 255, 255);
+		leds.set_ring_synced(walk&0x7,
+			gamma_curve[((color.red)&0xFF)/4],
+			gamma_curve[((color.green)&0xFF)/4],
+			gamma_curve[((color.blue)&0xFF)/4]
+		);
+
+		walk += switch_dir;
+
+		rgb_walk += 7;
+		if (rgb_walk >= 360*3) {
+			rgb_walk = 0;
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds.set_bird(d, eeprom_settings.bird_color.gamma());
+		}
+
+		switch_counter ++;
+		if (switch_counter > 64 && random.get(0,2)) {
+			switch_dir *= -1;
+			switch_counter = 0;
+			walk += switch_dir;
+			walk += switch_dir;
+		}
+
+		if (post_frame(50)) {
+			return;
+		}
+	}
+}
+
+static void light_tracer() {
+	uint32_t walk = 0;
+
+	rgb_color gradient[8];
+	uint32_t col = eeprom_settings.ring_color.rgb;
+	gradient[7] = rgb_color(max(((col>>16)&0xFF)-0x40UL,0UL), max(((col>> 8)&0xFF)-0x40UL,0UL), max(((col>> 0)&0xFF)-0x40UL,0UL));
+	gradient[6] = rgb_color(max(((col>>16)&0xFF)-0x40UL,0UL), max(((col>> 8)&0xFF)-0x40UL,0UL), max(((col>> 0)&0xFF)-0x40UL,0UL));
+	gradient[5] = rgb_color(max(((col>>16)&0xFF)-0x30UL,0UL), max(((col>> 8)&0xFF)-0x30UL,0UL), max(((col>> 0)&0xFF)-0x30UL,0UL));
+	gradient[4] = rgb_color(max(((col>>16)&0xFF)-0x18UL,0UL), max(((col>> 8)&0xFF)-0x18UL,0UL), max(((col>> 0)&0xFF)-0x18UL,0UL));
+	gradient[3] = rgb_color(max(((col>>16)&0xFF)-0x00UL,0UL), max(((col>> 8)&0xFF)-0x00UL,0UL), max(((col>> 0)&0xFF)-0x00UL,0UL));
+	gradient[2] = rgb_color(max((col>>16)&0xFF,0x10UL), max((col>> 8)&0xFF,0x00UL), max((col>> 0)&0xFF,0x20UL));
+	gradient[1] = rgb_color(max((col>>16)&0xFF,0x30UL), max((col>> 8)&0xFF,0x30UL), max((col>> 0)&0xFF,0x30UL));
+	gradient[0] = rgb_color(max((col>>16)&0xFF,0x40UL), max((col>> 8)&0xFF,0x40UL), max((col>> 0)&0xFF,0x40UL));
+
+	for (;;) {
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds.set_ring((walk+d)&0x7,
+				gamma_curve[((gradient[d].red)&0xFF)],
+				gamma_curve[((gradient[d].green)&0xFF)],
+				gamma_curve[((gradient[d].blue)&0xFF)]
+			);
+		}
+
+		walk--;
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds.set_bird(d, eeprom_settings.bird_color.gamma());
+		}
+
+		if (post_frame(100)) {
+			return;
+		}
+	}
+}
+
+
+static void ring_tracer() {
+	uint32_t walk = 0;
+	int32_t switch_dir = 1;
+	uint32_t switch_counter = 0;
+	for (;;) {
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds.set_ring(d,0,0,0);
+		}
+
+		leds.set_ring_synced((walk+0)&0x7, eeprom_settings.ring_color.gamma());
+		leds.set_ring_synced((walk+1)&0x7, eeprom_settings.ring_color.gamma());
+		leds.set_ring_synced((walk+2)&0x7, eeprom_settings.ring_color.gamma());
+
+		walk += switch_dir;
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds.set_bird(d, eeprom_settings.bird_color.gamma());
+		}
+
+		switch_counter ++;
+		if (switch_counter > 64 && random.get(0,2)) {
+			switch_dir *= -1;
+			switch_counter = 0;
+			walk += switch_dir;
+			walk += switch_dir;
+		}
+
+		if (post_frame(50)) {
+			return;
+		}
+	}
+}
+
+static void ring_bar_rotate() {
+	uint32_t rgb_walk = 0;
+	uint32_t walk = 0;
+	int32_t switch_dir = 1;
+	uint32_t switch_counter = 0;
+	for (;;) {
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds.set_ring(d,0,0,0);
+		}
+
+		leds.set_ring_synced((walk+0)&0x7, eeprom_settings.ring_color.gamma());
+		leds.set_ring_synced((walk+4)&0x7, eeprom_settings.ring_color.gamma());
+
+		walk += switch_dir;
+
+		rgb_walk += 7;
+		if (rgb_walk >= 360*3) {
+			rgb_walk = 0;
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds.set_bird(d, eeprom_settings.bird_color.gamma());
+		}
+
+		switch_counter ++;
+		if (switch_counter > 64 && random.get(0,2)) {
+			switch_dir *= -1;
+			switch_counter = 0;
+			walk += switch_dir;
+			walk += switch_dir;
+		}
+
+		if (post_frame(50)) {
+			return;
+		}
+	}
+}
+
+static void ring_bar_move() {
+	uint32_t rgb_walk = 0;
+	uint32_t walk = 0;
+	int32_t switch_dir = 1;
+	uint32_t switch_counter = 0;
+
+	static const int8_t indecies0[] = {
+		-1,
+		-1,
+		-1,
+		-1,
+		-1,
+		-1,
+		0,
+		1,
+		2,
+		3,
+		4
+		-1,
+		-1,
+		-1,
+		-1,
+		-1,
+	};
+
+	static const int8_t indecies1[] = {
+		-1,
+		-1,
+		-1,
+		-1,
+		-1,
+		-1,
+		0,
+		7,
+		6,
+		5,
+		4,
+		-1,
+		-1,
+		-1,
+		-1,
+		-1,
+	};
+
+	for (;;) {
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds.set_ring(d,0,0,0);
+		}
+
+		if (indecies0[(walk)%15] >=0 ) {
+			leds.set_ring_synced(indecies0[(walk)%15], eeprom_settings.ring_color.gamma());	
+		}
+		if (indecies1[(walk)%15] >=0 ) {
+			leds.set_ring_synced(indecies1[(walk)%15], eeprom_settings.ring_color.gamma());
+		}
+
+		walk += switch_dir;
+
+		rgb_walk += 7;
+		if (rgb_walk >= 360*3) {
+			rgb_walk = 0;
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds.set_bird(d, eeprom_settings.bird_color.gamma());
+		}
+
+		switch_counter ++;
+		if (switch_counter > 64 && random.get(0,2)) {
+			switch_dir *= -1;
+			switch_counter = 0;
+			walk += switch_dir;
+			walk += switch_dir;
+		}
+
+		if (post_frame(50)) {
+			return;
+		}
+	}
+}
+
+static void rgb_vertical_wall() {
+	uint32_t rgb_walk = 0;
+	for (;;) {
+
+		rgb_color color;
+		color = hsvToRgb(((rgb_walk+  0)/3)%360, 255, 255);
+		leds.set_ring_synced(0, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		color = hsvToRgb(((rgb_walk+ 30)/3)%360, 255, 255);
+		leds.set_ring_synced(1, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		leds.set_ring_synced(7, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		color = hsvToRgb(((rgb_walk+120)/3)%360, 255, 255);
+		leds.set_ring_synced(2, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		leds.set_ring_synced(6, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		color = hsvToRgb(((rgb_walk+210)/3)%360, 255, 255);
+		leds.set_ring_synced(3, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		leds.set_ring_synced(5, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		color = hsvToRgb(((rgb_walk+230)/3)%360, 255, 255);
+		leds.set_ring_synced(4, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+
+		rgb_walk += 7;
+		if (rgb_walk >= 360*3) {
+			rgb_walk = 0;
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds.set_bird(d, eeprom_settings.bird_color.gamma());
+		}
+
+		if (post_frame(40)) {
+			return;
+		}
+	}
+}
+
+static void shine_vertical() {
+	uint32_t rgb_walk = 0;
+	rgb_color gradient[256];
+	for (uint32_t c = 0; c < 128; c++) {
+		uint32_t r = max(eeprom_settings.ring_color.ru(),c/2);
+		uint32_t g = max(eeprom_settings.ring_color.gu(),c/2);
+		uint32_t b = max(eeprom_settings.ring_color.bu(),c/2);
+		gradient[c] = rgb_color(r, g, b);
+	}
+	for (uint32_t c = 0; c < 128; c++) {
+		uint32_t r = max(eeprom_settings.ring_color.ru(),(128-c)/2);
+		uint32_t g = max(eeprom_settings.ring_color.gu(),(128-c)/2);
+		uint32_t b = max(eeprom_settings.ring_color.bu(),(128-c)/2);
+		gradient[c+128] = rgb_color(r, g, b);
+	}
+
+	for (;;) {
+		rgb_color color;
+		color = gradient[((rgb_walk+ 0))%256];
+		leds.set_ring_synced(0, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		color = gradient[((rgb_walk+10))%256];
+		leds.set_ring_synced(1, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		leds.set_ring_synced(7, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		color = gradient[((rgb_walk+40))%256];
+		leds.set_ring_synced(2, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		leds.set_ring_synced(6, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		color = gradient[((rgb_walk+70))%256];
+		leds.set_ring_synced(3, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		leds.set_ring_synced(5, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		color = gradient[((rgb_walk+80))%256];
+		leds.set_ring_synced(4, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+
+		rgb_walk += 7;
+		if (rgb_walk >= 256) {
+			rgb_walk = 0;
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds.set_bird(d, eeprom_settings.bird_color.gamma());
+		}
+
+		if (post_frame(80)) {
+			return;
+		}
+	}
+}
+
+static void shine_horizontal() {
+	int32_t rgb_walk = 0;
+	int32_t switch_dir = 1;
+
+	rgb_color gradient[256];
+	for (uint32_t c = 0; c < 128; c++) {
+		uint32_t r = max(eeprom_settings.ring_color.ru(),c/2);
+		uint32_t g = max(eeprom_settings.ring_color.gu(),c/2);
+		uint32_t b = max(eeprom_settings.ring_color.bu(),c/2);
+		gradient[c] = rgb_color(r, g, b);
+	}
+	for (uint32_t c = 0; c < 128; c++) {
+		uint32_t r = max(eeprom_settings.ring_color.ru(),(128-c)/2);
+		uint32_t g = max(eeprom_settings.ring_color.gu(),(128-c)/2);
+		uint32_t b = max(eeprom_settings.ring_color.bu(),(128-c)/2);
+		gradient[c+128] = rgb_color(r, g, b);
+	}
+
+	for (;;) {
+		rgb_color color;
+		color = gradient[((rgb_walk+ 0))%256];
+		leds.set_ring_synced(6, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		color = gradient[((rgb_walk+10))%256];
+		leds.set_ring_synced(7, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		leds.set_ring_synced(5, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		color = gradient[((rgb_walk+40))%256];
+		leds.set_ring_synced(0, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		leds.set_ring_synced(4, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		color = gradient[((rgb_walk+70))%256];
+		leds.set_ring_synced(1, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		leds.set_ring_synced(3, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+		color = gradient[((rgb_walk+80))%256];
+		leds.set_ring_synced(2, gamma_curve[((color.red)&0xFF)], gamma_curve[((color.green)&0xFF)], gamma_curve[((color.blue)&0xFF)]);
+
+		rgb_walk += 7*switch_dir;
+		if (rgb_walk >= 256) {
+			rgb_walk = 255;
+			switch_dir *= -1;
+		}
+		if (rgb_walk < 0) {
+			rgb_walk = 0;
+			switch_dir *= -1;
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds.set_bird(d, eeprom_settings.bird_color.gamma());
+		}
+
+		if (post_frame(80)) {
+			return;
+		}
+	}
+}
+
+static void rgb_horizontal_wall() {
+	uint32_t rgb_walk = 0;
+	for (;;) {
+
+		rgb_color color;
+		color = hsvToRgb(((rgb_walk+  0)/3)%360, 255, 255);
+		leds.set_ring_synced(6, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		color = hsvToRgb(((rgb_walk+ 30)/3)%360, 255, 255);
+		leds.set_ring_synced(7, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		leds.set_ring_synced(5, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		color = hsvToRgb(((rgb_walk+120)/3)%360, 255, 255);
+		leds.set_ring_synced(0, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		leds.set_ring_synced(4, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		color = hsvToRgb(((rgb_walk+210)/3)%360, 255, 255);
+		leds.set_ring_synced(1, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		leds.set_ring_synced(3, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+		color = hsvToRgb(((rgb_walk+230)/3)%360, 255, 255);
+		leds.set_ring_synced(2, gamma_curve[((color.red)&0xFF)/4], gamma_curve[((color.green)&0xFF)/4], gamma_curve[((color.blue)&0xFF)/4]);
+
+		rgb_walk += 7;
+		if (rgb_walk >= 360*3) {
+			rgb_walk = 0;
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds.set_bird(d, eeprom_settings.bird_color.gamma());
+		}
+
+		if (post_frame(40)) {
+			return;
+		}
+	}
+}
+
+static void lightning() {
+	for (;;) {
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds.set_ring(d, 0,0,0);
+		}
+
+		int index = random.get(0,128);
+		leds.set_ring_all(index,0x40,0x40,0x40);
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds.set_bird(d, eeprom_settings.bird_color.gamma());
+		}
+
+		if (post_frame(10)) {
+			return;
+		}
+	}
+}
+
+static void sparkle() {
+	for (;;) {
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds.set_ring(d, 0,0,0);
+		}
+
+		int index = random.get(0,16);
+		leds.set_ring_all(index,random.get(0x00,0x10),random.get(0x00,0x10),random.get(0,0x10));
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds.set_bird(d, eeprom_settings.bird_color.gamma());
+		}
+
+		if (post_frame(50)) {
+			return;
+		}
+	}
+}
+
+static void lightning_crazy() {
+	for (;;) {
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds.set_ring(d, 0,0,0);
+		}
+
+		int index = random.get(0,16);
+		leds.set_ring_all(index,0x40,0x40,0x40);
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds.set_bird(d, eeprom_settings.bird_color.gamma());
+		}
+
+		if (post_frame(10)) {
+			return;
+		}
+	}
+}
+
+static void heartbeat() {
+	int32_t rgb_walk = 0;
+	int32_t switch_dir = 1;
+	for (; ;) {
+		for (uint32_t d = 0; d < 8; d++) {
+			leds.set_ring(d, eeprom_settings.ring_color.gamma());
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds.set_bird(d, gamma_curve[((eeprom_settings.bird_color.r)*rgb_walk)/256],
+					 		 gamma_curve[((eeprom_settings.bird_color.g)*rgb_walk)/256],
+					 		 gamma_curve[((eeprom_settings.bird_color.b)*rgb_walk)/256]);
+		}
+
+		rgb_walk += switch_dir;
+		if (rgb_walk >= 256) {
+			rgb_walk = 255;
+			switch_dir *= -1;
+		}
+		if (rgb_walk < 0) {
+			rgb_walk = 0;
+			switch_dir *= -1;
+		}
+
+		if (post_frame(8)) {
+			return;
+		}
+	}
+}
+
+static void brilliance() {
+	int32_t current_wait = 0;
+	int32_t wait_time = 0;
+	int32_t rgb_walk = 0;
+	int32_t switch_dir = 1;
+	for (; ;) {
+		rgb_color gradient[256];
+		for (int32_t c = 0; c < 112; c++) {
+			uint32_t r = eeprom_settings.bird_color.r;
+			uint32_t g = eeprom_settings.bird_color.g;
+			uint32_t b = eeprom_settings.bird_color.b;
+			gradient[c] = rgb_color(r, g, b);
+		}
+		for (uint32_t c = 0; c < 16; c++) {
+			uint32_t r = max(eeprom_settings.bird_color.ru(),c*8);
+			uint32_t g = max(eeprom_settings.bird_color.gu(),c*8);
+			uint32_t b = max(eeprom_settings.bird_color.bu(),c*8);
+			gradient[c+112] = rgb_color(r, g, b);
+		}
+		for (uint32_t c = 0; c < 16; c++) {
+			uint32_t r = max(eeprom_settings.bird_color.ru(),(16-c)*8);
+			uint32_t g = max(eeprom_settings.bird_color.gu(),(16-c)*8);
+			uint32_t b = max(eeprom_settings.bird_color.bu(),(16-c)*8);
+			gradient[c+128] = rgb_color(r, g, b);
+		}
+		for (int32_t c = 0; c < 112; c++) {
+			uint32_t r = eeprom_settings.bird_color.r;
+			uint32_t g = eeprom_settings.bird_color.g;
+			uint32_t b = eeprom_settings.bird_color.b;
+			gradient[c+144] = rgb_color(r, g, b);
+		}
+
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds.set_ring(d, eeprom_settings.ring_color.gamma());
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			rgb_color color = gradient[((rgb_walk+ 0))%256];
+			leds.set_bird(d, gamma_curve[((color.red)&0xFF)], 
+							 gamma_curve[((color.green)&0xFF)], 
+							 gamma_curve[((color.blue)&0xFF)]);
+		}
+
+		rgb_walk += switch_dir;
+		if (rgb_walk >= 256) {
+			current_wait++;
+			if (current_wait > wait_time) {
+				wait_time = random.get(0,2000);
+				rgb_walk = 0;
+				current_wait = 0;
+			} else {
+				rgb_walk = 255;
+			}
+		}
+
+		if (post_frame(10)) {
+			return;
+		}
+	}
+}
+
+static void tingling() {
+	#define NUM_TINGLES 16
+	struct tingle {
+		bool active;
+		int32_t wait;
+		int32_t index;
+		uint32_t progress;
+		bool lightordark;
+	} tingles[NUM_TINGLES] = {0};
+
+	for (; ;) {
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds.set_ring(d, eeprom_settings.ring_color.gamma());
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds.set_bird(d, eeprom_settings.bird_color.gamma());
+		}
+
+		for (int32_t c = 0 ; c < NUM_TINGLES; c++) {
+			if (tingles[c].active == 0) {
+				tingles[c].wait = random.get(0,25);
+				for (;;) {
+					bool done = true;
+					tingles[c].index = random.get(0,16);
+					for (int32_t d = 0 ; d < NUM_TINGLES; d++) {
+						if( d != c && 
+							tingles[c].active && 
+							tingles[c].index == tingles[d].index) {
+							done = false;
+							break;
+						}
+					}
+					if (done) {
+						break;
+					}
+				}
+				tingles[c].index = random.get(0,16);
+				tingles[c].progress = 0;
+				tingles[c].lightordark = random.get(0,2);
+				tingles[c].active = 1;
+			} else if (tingles[c].progress >= 16) {
+				tingles[c].active = 0;
+			} else if (tingles[c].wait > 0) {
+				tingles[c].wait --;
+			} else {
+				uint32_t r = 0,g = 0,b = 0;
+				uint32_t progress = tingles[c].progress;
+				if (progress > 8) {
+					progress -= 8;
+					progress = 8 - progress;
+				}
+				if (tingles[c].lightordark) {
+					r = max(eeprom_settings.ring_color.ru(),progress*8);
+					g = max(eeprom_settings.ring_color.gu(),progress*8);
+					b = max(eeprom_settings.ring_color.bu(),progress*8);					
+				} else {
+					r = (eeprom_settings.ring_color.r)-progress*8;
+					g = (eeprom_settings.ring_color.g)-progress*8;
+					b = (eeprom_settings.ring_color.b)-progress*8;
+					r = max(r,0UL);
+					g = max(g,0UL);
+					b = max(b,0UL);					
+				}
+				leds.set_ring_all(tingles[c].index, gamma_curve[r], 
+													gamma_curve[g], 
+													gamma_curve[b]);
+				tingles[c].progress++;
+			}
+		}
+
+		if (post_frame(20)) {
+			return;
+		}
+	}
+}
+
+
+static void twinkle() {
+	#define NUM_TWINKLE 3
+	struct tingle {
+		bool active;
+		int32_t wait;
+		int32_t index;
+		uint32_t progress;
+	} tingles[NUM_TWINKLE] = {0};
+
+	for (; ;) {
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds.set_ring(d, eeprom_settings.ring_color.gamma());
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds.set_bird(d, eeprom_settings.bird_color.gamma());
+		}
+
+		for (int32_t c = 0 ; c < NUM_TWINKLE; c++) {
+			if (tingles[c].active == 0) {
+				tingles[c].wait = random.get(0,50);
+				for (;;) {
+					bool done = true;
+					tingles[c].index = random.get(0,16);
+					for (int32_t d = 0 ; d < NUM_TWINKLE; d++) {
+						if( d != c && 
+							tingles[c].active && 
+							tingles[c].index == tingles[d].index) {
+							done = false;
+							break;
+						}
+					}
+					if (done) {
+						break;
+					}
+				}
+				tingles[c].index = random.get(0,16);
+				tingles[c].progress = 0;
+				tingles[c].active = 1;
+			} else if (tingles[c].progress >= 16) {
+				tingles[c].active = 0;
+			} else if (tingles[c].wait > 0) {
+				tingles[c].wait --;
+			} else {
+				uint32_t r = 0,g = 0,b = 0;
+				uint32_t progress = tingles[c].progress;
+				if (progress > 8) {
+					progress -= 8;
+					progress = 8 - progress;
+				}
+
+				r = max(eeprom_settings.ring_color.ru(),progress*16);
+				g = max(eeprom_settings.ring_color.gu(),progress*16);
+				b = max(eeprom_settings.ring_color.bu(),progress*16);					
+				leds.set_ring_all(tingles[c].index, gamma_curve[r], 
+													gamma_curve[g], 
+													gamma_curve[b]);
+				tingles[c].progress++;
+			}
+		}
+
+		if (post_frame(50)) {
+			return;
+		}
+	}
+}
+
+static void simple_change_ring() {
+
+	int32_t color_index = -1;
+
+	int32_t index = 0;
+
+	int32_t r = random.get(0x00,0x40);
+	int32_t g = random.get(0x00,0x40);
+	int32_t b = random.get(0x00,0x40);
+	int32_t cr = 0;
+	int32_t cg = 0;
+	int32_t cb = 0;
+	int32_t nr = 0;
+	int32_t ng = 0;
+	int32_t nb = 0;
+
+	for (; ;) {
+
+		if (index >= 600) {
+			if (index == 600) {
+				cr = r;
+				cg = g;
+				cb = b;
+				nr = random.get(0x00,0x40);
+				ng = random.get(0x00,0x40);
+				nb = random.get(0x00,0x40);
+			}
+			if (index >= 664) {
+				index = 0;
+			} else {
+				int32_t lft = index-600;
+				int32_t rgt = 64-lft;
+				r = (nr*lft + cr*rgt) / 64;
+				g = (ng*lft + cg*rgt) / 64;
+				b = (nb*lft + cb*rgt) / 64;
+				index++;
+			}
+		} else {
+			index++;
+		}
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds.set_ring(d, gamma_curve[r],
+					 		 gamma_curve[g],
+					 		 gamma_curve[b]);
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds.set_bird(d, eeprom_settings.bird_color.gamma());
+		}
+
+		if (post_frame(15)) {
+			return;
+		}
+	}
+}
+
+static void simple_change_bird() {
+
+	int32_t color_index = -1;
+
+	int32_t index = 0;
+
+	int32_t r = random.get(0x00,0x40);
+	int32_t g = random.get(0x00,0x40);
+	int32_t b = random.get(0x00,0x40);
+	int32_t cr = 0;
+	int32_t cg = 0;
+	int32_t cb = 0;
+	int32_t nr = 0;
+	int32_t ng = 0;
+	int32_t nb = 0;
+
+	for (; ;) {
+
+		if (index >= 600) {
+			if (index == 600) {
+				cr = r;
+				cg = g;
+				cb = b;
+				nr = random.get(0x00,0x40);
+				ng = random.get(0x00,0x40);
+				nb = random.get(0x00,0x40);
+			}
+			if (index >= 664) {
+				index = 0;
+			} else {
+				int32_t lft = index-600;
+				int32_t rgt = 64-lft;
+				r = (nr*lft + cr*rgt) / 64;
+				g = (ng*lft + cg*rgt) / 64;
+				b = (nb*lft + cb*rgt) / 64;
+				index++;
+			}
+		} else {
+			index++;
+		}
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds.set_ring(d, eeprom_settings.ring_color.gamma());
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds.set_bird(d, gamma_curve[r],
+					 		 gamma_curve[g],
+					 		 gamma_curve[b]);
+		}
+
+		if (post_frame(15)) {
+			return;
+		}
+	}
+}
+
+static void simple_random() {
+
+	rgb_color colors[16];
+	for (int32_t c = 0; c<16; c++) {
+		colors[c].red = random.get(0x00,0x40);
+		colors[c].green = random.get(0x00,0x40);
+		colors[c].blue = random.get(0x00,0x40);
+	}
+
+	for (; ;) {
+
+		uint32_t index = random.get(0x00,0x10);
+		colors[index].red = random.get(0x00,0x40);
+		colors[index].green = random.get(0x00,0x40);
+		colors[index].blue = random.get(0x00,0x40);
+
+		for (uint32_t d = 0; d < 16; d++) {
+			leds.set_ring_all(d, gamma_curve[colors[d].red],
+					 		     gamma_curve[colors[d].green],
+					 		     gamma_curve[colors[d].blue]);
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds.set_bird(d, eeprom_settings.bird_color.gamma());
+		}
+
+		if (post_frame(20)) {
+			return;
+		}
+	}
+}
+
+static void diagonal_wipe() {
+
+	int32_t walk = 0;
+	int32_t wait = random.get(60,1500);
+	int32_t dir = random.get(0,2);
+
+	for (; ;) {
+		for (uint32_t d = 0; d < 8; d++) {
+			leds.set_ring(d, eeprom_settings.ring_color.gamma());
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds.set_bird(d, eeprom_settings.bird_color.gamma());
+		}
+
+		int32_t i0 = -1;
+		int32_t i1 = -1;
+
+		if (dir) {
+			if (walk < 10) {
+				i0 = 7;
+				i1 = 7;
+			} else if (walk < 20) {
+				i0 = 0;
+				i1 = 6;
+			} else if (walk < 30) {
+				i0 = 1;
+				i1 = 5;
+			} else if (walk < 40) {
+				i0 = 2;
+				i1 = 4;
+			} else if (walk < 50) {
+				i0 = 3;
+				i1 = 3;
+			} else {
+				i0 = -1;
+				i1 = -1;
+			}	
+		} else {
+			if (walk < 10) {
+				i0 = 1;
+				i1 = 1;
+			} else if (walk < 20) {
+				i0 = 0;
+				i1 = 2;
+			} else if (walk < 30) {
+				i0 = 7;
+				i1 = 3;
+			} else if (walk < 40) {
+				i0 = 6;
+				i1 = 4;
+			} else if (walk < 50) {
+				i0 = 5;
+				i1 = 5;
+			} else {
+				i0 = -1;
+				i1 = -1;
+			}	
+		}
+		
+		walk ++;
+		if (walk > wait) {
+			walk = 0;
+			wait = random.get(60,1024);
+			dir = random.get(0,2);
+		}
+
+		if (i0 >= 0) leds.set_ring_synced(i0, 0x40,0x40,0x40);
+		if (i1 >= 0) leds.set_ring_synced(i1, 0x40,0x40,0x40);
+
+		if (post_frame(5)) {
+			return;
+		}
+	}
+}
+
+static void shimmer_outside() {
+	int32_t walk = 0;
+	int32_t wait = random.get(16,64);
+	int32_t dir = random.get(0,2);
+
+	for (; ;) {
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds.set_bird(d, eeprom_settings.bird_color.gamma());
+		}
+
+		int32_t r = eeprom_settings.ring_color.r;
+		int32_t g = eeprom_settings.ring_color.g;
+		int32_t b = eeprom_settings.ring_color.b;
+		if (walk < 8) {
+			r = max(int32_t(0),r - int32_t(walk));
+			g = max(int32_t(0),g - int32_t(walk));
+			b = max(int32_t(0),b - int32_t(walk));
+		} else if (walk < 16) {
+			r = max(int32_t(0),r - int32_t((8-(walk-8))));
+			g = max(int32_t(0),g - int32_t((8-(walk-8))));
+			b = max(int32_t(0),b - int32_t((8-(walk-8))));
+		}
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds.set_ring(d, gamma_curve[r],
+					 		 gamma_curve[g],
+					 		 gamma_curve[b]);
+		}
+		
+		walk ++;
+		if (walk > wait) {
+			walk = 0;
+			wait = random.get(16,64);
+
+		}
+
+		if (post_frame(2)) {
+			return;
+		}
+	}
+}
+
+static void shimmer_inside() {
+	int32_t walk = 0;
+	int32_t wait = random.get(16,64);
+	int32_t dir = random.get(0,2);
+
+	for (; ;) {
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds.set_ring(d, eeprom_settings.ring_color.gamma());
+		}
+
+		int32_t r = eeprom_settings.ring_color.r;
+		int32_t g = eeprom_settings.ring_color.g;
+		int32_t b = eeprom_settings.ring_color.b;
+		if (walk < 8) {
+			r = max(int32_t(0),r - int32_t(walk));
+			g = max(int32_t(0),g - int32_t(walk));
+			b = max(int32_t(0),b - int32_t(walk));
+		} else if (walk < 16) {
+			r = max(int32_t(0),r - int32_t((8-(walk-8))));
+			g = max(int32_t(0),g - int32_t((8-(walk-8))));
+			b = max(int32_t(0),b - int32_t((8-(walk-8))));
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds.set_bird(d, gamma_curve[r],
+							 gamma_curve[g],
+							 gamma_curve[b]);
+		}
+		
+		walk ++;
+		if (walk > wait) {
+			walk = 0;
+			wait = random.get(16,64);
+
+		}
+
+		if (post_frame(10)) {
+			return;
+		}
+	}
+}
+
+static void red() {
+
+	int32_t wait = 1200;
+
+	int32_t index = 0;
+
+	int32_t br = eeprom_settings.bird_color.r;
+	int32_t bg = eeprom_settings.bird_color.g;
+	int32_t bb = eeprom_settings.bird_color.b;
+
+	int32_t rr = eeprom_settings.ring_color.r;
+	int32_t rg = eeprom_settings.ring_color.g;
+	int32_t rb = eeprom_settings.ring_color.b;
+
+	int32_t b1r = br;
+	int32_t b1g = bg;
+	int32_t b1b = bb;
+
+	int32_t r1r = rr;
+	int32_t r1g = rg;
+	int32_t r1b = rb;
+
+	for (; ;) {
+
+		if (index >= 0) {
+			if (index >= wait) {
+				wait = random.get(1200,10000);
+				index = 0;
+			} else if (index >= 0 && index < 64) {
+				int32_t rgt = index-0;
+				int32_t lft = 64-rgt;
+				b1r = (br*lft + 0x40*rgt) / 64;
+				b1g = (bg*lft + 0x00*rgt) / 64;
+				b1b = (bb*lft + 0x10*rgt) / 64;
+				r1r = (rr*lft + 0x40*rgt) / 64;
+				r1g = (rg*lft + 0x00*rgt) / 64;
+				r1b = (rb*lft + 0x10*rgt) / 64;
+				index++;
+			} else if (index >= 600 && index < 664) {
+				int32_t lft = index-600;
+				int32_t rgt = 64-lft;
+				b1r = (br*lft + 0x40*rgt) / 64;
+				b1g = (bg*lft + 0x00*rgt) / 64;
+				b1b = (bb*lft + 0x10*rgt) / 64;
+				r1r = (rr*lft + 0x40*rgt) / 64;
+				r1g = (rg*lft + 0x00*rgt) / 64;
+				r1b = (rb*lft + 0x10*rgt) / 64;
+				index++;
+			} else {
+				index++;
+			}
+		} else {
+			index++;
+		}
+
+		for (uint32_t d = 0; d < 8; d++) {
+			leds.set_ring(d, gamma_curve[r1r],
+					 		 gamma_curve[r1g],
+					 		 gamma_curve[r1b]);
+		}
+
+		for (uint32_t d = 0; d < 4; d++) {
+			leds.set_bird(d, gamma_curve[b1r],
+					 		 gamma_curve[b1g],
+					 		 gamma_curve[b1b]);
+		}
+
+		if (post_frame(20)) {
+			return;
+		}
+	}
+}
 
 extern "C" {
 	volatile void SysTick_Handler(void)
@@ -4209,29 +4133,20 @@ int main(void)
 	sx1280.Init(false);
 #endif  // #ifndef NO_SX1280
 
-	// 1s timer
-	SysTick_Config(SystemCoreClock / 1000);
-
 	eeprom_settings.load();
 
-	eeprom_settings.program_count = 27;
-
-	if (eeprom_settings.bird_color == 0 ||
-		eeprom_settings.bird_color_index > 16 ||
-		eeprom_settings.ring_color == 0 ||
-		eeprom_settings.ring_color_index > 16 ) {
-	 	eeprom_settings.bird_color = 0x404000;
-		eeprom_settings.bird_color_index = 0;
-	 	eeprom_settings.ring_color = 0x083040;
-		eeprom_settings.ring_color_index = 0;
-		eeprom_settings.save();
-	}
+	flash_storage.init();
 	
 	random.init(0xCAFFE);
 	
 	// Boot screen
-	flash_access.read_data(0, &screen_data[0], sizeof(screen_data));
+	sdd1306.FillScreenByScanline([] (uint32_t y, uint8_t *ptr, uint32_t width, uint32_t height) {
+		flash_storage.read_data(y*(width/8), ptr, (width/8));
+	});
 
+	// start 1ms timer
+	SysTick_Config(SystemCoreClock / 1000);
+	
 	while (1) {
 
 		sdd1306.Display();

@@ -56,10 +56,6 @@ int main(int argc, char **argv)
 	{
 		exit_on_error("Failed to open file %s\n", argv[1]);
 	}
-	if((out = fopen(argv[2], "r")))
-	{
-		exit_on_error("Output file %s already exists\n", argv[2]);
-	}
 	if(!(out = fopen(argv[2], "w")))
 	{
 		exit_on_error("Failed to open output file %s for writing\n", argv[2]);
