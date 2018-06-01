@@ -17,11 +17,11 @@
 #define I2C_FASTPLUS_BIT IOCON_FASTI2C_EN
 #endif
 
-#define NO_OLED
-#define NO_SX1280
-#define NO_FLASH
-#define NO_EEPROM
-#define NO_I2C
+//#define NO_OLED
+//#define NO_SX1280
+//#define NO_FLASH
+//#define NO_EEPROM
+//#define NO_I2C
 
 namespace std {
     void __throw_bad_function_call() { for(;;) {} }
@@ -1736,6 +1736,7 @@ class SX1280 {
 						buf[2] = modParams->Params.Ble.ModulationShaping;
 						break;
 				#endif  // #ifdef BLE_SUPPORT
+					default:
 					case PACKET_TYPE_NONE:
 						buf[0] = 0;
 						buf[1] = 0;
@@ -1802,6 +1803,7 @@ class SX1280 {
 						buf[6] = 0;
 						break;
 				#endif  // #ifdef BLE_SUPPORT
+					default:
 					case PACKET_TYPE_NONE:
 						buf[0] = 0;
 						buf[1] = 0;
@@ -1917,6 +1919,7 @@ class SX1280 {
 						packetStatus->Ble.SyncAddrStatus = status[4] & 0x07;
 						break;
 				#endif  // #ifdef BLE_SUPPORT
+					default:
 					case PACKET_TYPE_NONE:
 						// In that specific case, we set everything in the packetStatus to zeros
 						// and reset the packet type accordingly
@@ -2149,16 +2152,14 @@ class SX1280 {
 
 			void SetCrcPolynomial( uint16_t polynomial )
 			{
-				uint8_t val[2];
-
-				val[0] = ( uint8_t )( polynomial >> 8 ) & 0xFF;
-				val[1] = ( uint8_t )( polynomial  & 0xFF );
-
 				switch( GetPacketType( true ) )
 				{
 				#if defined(GFSK_SUPPORT) || defined(FLRC_SUPPORT)
 					case PACKET_TYPE_GFSK:
 					case PACKET_TYPE_FLRC:
+						uint8_t val[2];
+						val[0] = ( uint8_t )( polynomial >> 8 ) & 0xFF;
+						val[1] = ( uint8_t )( polynomial  & 0xFF );
 						WriteRegister( REG_LR_CRCPOLYBASEADDR, val, 2 );
 						break;
 				#endif  // #if defined(GFSK_SUPPORT) || defined(FLRC_SUPPORT)
@@ -2635,8 +2636,8 @@ class SX1280 {
 
 			int32_t complement2( const uint32_t num, const uint8_t bitCnt )
 			{
-				int32_t retVal = ( int32_t )num;
-				if( num >= 2<<( bitCnt - 2 ) ) {
+				int32_t retVal = int32_t(num);
+				if( int32_t(num) >= 2<<( bitCnt - 2 ) ) {
 					retVal -= 2<<( bitCnt - 1 );
 				}
 				return retVal;
@@ -2683,10 +2684,6 @@ class SDD1306 {
 						buffer[(c*(width/8+1))+d+1] = value;
 					}
 				}
-			}
-
-			void delay(int32_t ms) const {
-				for (volatile uint32_t i = 0; i < ms*2400; i++) {}
 			}
 
 			void WriteCommand(uint8_t v) const {

@@ -63,7 +63,7 @@ firmware.elf: $(OBJS)
 	$(CP) -I binary $< -O ihex $@
 
 clean:
-	rm -f */*.o */*.o *.o *.elf *.bin *.s ./lpc21isp/lpc21isp 
+	rm -f */*/*.o */*.o *.o *.elf *.bin *.s ./lpc21isp/lpc21isp 
 
 # these target names don't represent real files
 .PHONY: upload dump clean ./lpc21isp/lpc21isp
