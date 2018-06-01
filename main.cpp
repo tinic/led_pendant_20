@@ -248,6 +248,14 @@ struct rgba {
 	rgba gamma() { return rgba(gammar(), gammag(), gammab());  }
 
 	operator uint32_t() const { return rgbp; }
+	
+	rgba operator/(const uint32_t div) const {
+		return rgba(ru()/div, gu()/div, bu()/div);
+	}
+
+	rgba operator*(const uint32_t mul) const {
+		return rgba(ru()*mul, gu()*mul, bu()*mul);
+	}
 
 	uint8_t r() const { return ((rgbp>>16)&0xFF); };
 	uint8_t g() const { return ((rgbp>> 8)&0xFF); };
@@ -3073,20 +3081,20 @@ static void color_ring() {
 static void fade_ring() {
 	for (; ;) {
 		rgba color;
-		uint32_t col = eeprom_settings.ring_color;
-		color = rgba(max(((col>>16)&0xFF)-0x20UL,0UL), max(((col>> 8)&0xFF)-0x20UL,0UL), max(((col>> 0)&0xFF)-0x20UL,0UL));
-		leds.set_ring(0, gamma_curve[color.r()],  gamma_curve[color.g()], gamma_curve[color.b()]);
-		color = rgba(max(((col>>16)&0xFF)-0x1AUL,0UL), max(((col>> 8)&0xFF)-0x1AUL,0UL), max(((col>> 0)&0xFF)-0x1AUL,0UL));
-		leds.set_ring(1, gamma_curve[color.r()],  gamma_curve[color.g()], gamma_curve[color.b()]);
-		leds.set_ring(7, gamma_curve[color.r()],  gamma_curve[color.g()], gamma_curve[color.b()]);
-		color = rgba(max(((col>>16)&0xFF)-0x18UL,0UL), max(((col>> 8)&0xFF)-0x18UL,0UL), max(((col>> 0)&0xFF)-0x18UL,0UL));
-		leds.set_ring(2, gamma_curve[color.r()],  gamma_curve[color.g()], gamma_curve[color.b()]);
-		leds.set_ring(6, gamma_curve[color.r()],  gamma_curve[color.g()], gamma_curve[color.b()]);
-		color = rgba(max(((col>>16)&0xFF)-0x10UL,0UL), max(((col>> 8)&0xFF)-0x10UL,0UL), max(((col>> 0)&0xFF)-0x10UL,0UL));
-		leds.set_ring(3, gamma_curve[color.r()],  gamma_curve[color.g()], gamma_curve[color.b()]);
-		leds.set_ring(5, gamma_curve[color.r()],  gamma_curve[color.g()], gamma_curve[color.b()]);
-		color = rgba(max(((col>>16)&0xFF)-0x00UL,0UL), max(((col>> 8)&0xFF)-0x00UL,0UL), max(((col>> 0)&0xFF)-0x00UL,0UL));
-		leds.set_ring(4, gamma_curve[color.r()],  gamma_curve[color.g()], gamma_curve[color.b()]);
+		const rgba &rc = eeprom_settings.ring_color;
+		color = rgba(max(rc.r()-0x20UL,0UL), max(rc.g()-0x20UL,0UL), max(rc.b()-0x20UL,0UL));
+		leds.set_ring(0, color.gamma());
+		color = rgba(max(rc.r()-0x1AUL,0UL), max(rc.g()-0x1AUL,0UL), max(rc.b()-0x1AUL,0UL));
+		leds.set_ring(1, color.gamma());
+		leds.set_ring(7, color.gamma());
+		color = rgba(max(rc.r()-0x18UL,0UL), max(rc.g()-0x18UL,0UL), max(rc.b()-0x18UL,0UL));
+		leds.set_ring(2, color.gamma());
+		leds.set_ring(6, color.gamma());
+		color = rgba(max(rc.r()-0x10UL,0UL), max(rc.g()-0x10UL,0UL), max(rc.b()-0x10UL,0UL));
+		leds.set_ring(3, color.gamma());
+		leds.set_ring(5, color.gamma());
+		color = rgba(max(rc.r()-0x00UL,0UL), max(rc.g()-0x00UL,0UL), max(rc.b()-0x00UL,0UL));
+		leds.set_ring(4, color.gamma());
 
 		for (uint32_t d = 0; d < 4; d++) {
 			leds.set_bird(d, eeprom_settings.bird_color.gamma());
@@ -3140,11 +3148,7 @@ static void rgb_glow() {
 
 		rgba color = rgba::hsvToRgb(rgb_walk, 255, 255);
 		for (uint32_t d = 0; d < 8; d++) {
-			leds.set_ring_synced(d,
-				gamma_curve[((color.r())&0xFF)/4],
-				gamma_curve[((color.g())&0xFF)/4],
-				gamma_curve[((color.b())&0xFF)/4]
-			);
+			leds.set_ring_synced(d, (color / 4UL).gamma());
 		}
 		
 		rgb_walk ++;
@@ -3174,11 +3178,7 @@ static void rgb_tracer() {
 		}
 
 		rgba color = rgba::hsvToRgb(rgb_walk/3, 255, 255);
-		leds.set_ring_synced(walk&0x7,
-			gamma_curve[((color.r())&0xFF)/4],
-			gamma_curve[((color.g())&0xFF)/4],
-			gamma_curve[((color.b())&0xFF)/4]
-		);
+		leds.set_ring_synced(walk&0x7, (color / 4UL).gamma());
 
 		walk += switch_dir;
 
@@ -3209,24 +3209,20 @@ static void light_tracer() {
 	uint32_t walk = 0;
 
 	rgba gradient[8];
-	uint32_t col = eeprom_settings.ring_color;
-	gradient[7] = rgba(max(((col>>16)&0xFF)-0x40UL,0UL), max(((col>> 8)&0xFF)-0x40UL,0UL), max(((col>> 0)&0xFF)-0x40UL,0UL));
-	gradient[6] = rgba(max(((col>>16)&0xFF)-0x40UL,0UL), max(((col>> 8)&0xFF)-0x40UL,0UL), max(((col>> 0)&0xFF)-0x40UL,0UL));
-	gradient[5] = rgba(max(((col>>16)&0xFF)-0x30UL,0UL), max(((col>> 8)&0xFF)-0x30UL,0UL), max(((col>> 0)&0xFF)-0x30UL,0UL));
-	gradient[4] = rgba(max(((col>>16)&0xFF)-0x18UL,0UL), max(((col>> 8)&0xFF)-0x18UL,0UL), max(((col>> 0)&0xFF)-0x18UL,0UL));
-	gradient[3] = rgba(max(((col>>16)&0xFF)-0x00UL,0UL), max(((col>> 8)&0xFF)-0x00UL,0UL), max(((col>> 0)&0xFF)-0x00UL,0UL));
-	gradient[2] = rgba(max((col>>16)&0xFF,0x10UL), max((col>> 8)&0xFF,0x00UL), max((col>> 0)&0xFF,0x20UL));
-	gradient[1] = rgba(max((col>>16)&0xFF,0x30UL), max((col>> 8)&0xFF,0x30UL), max((col>> 0)&0xFF,0x30UL));
-	gradient[0] = rgba(max((col>>16)&0xFF,0x40UL), max((col>> 8)&0xFF,0x40UL), max((col>> 0)&0xFF,0x40UL));
+	const rgba &rc = eeprom_settings.ring_color;
+	gradient[7] = rgba(max(rc.ru()-0x40UL,0UL), max(rc.gu()-0x40UL,0UL), max(rc.bu()-0x40UL,0UL));
+	gradient[6] = rgba(max(rc.ru()-0x40UL,0UL), max(rc.gu()-0x40UL,0UL), max(rc.bu()-0x40UL,0UL));
+	gradient[5] = rgba(max(rc.ru()-0x30UL,0UL), max(rc.gu()-0x30UL,0UL), max(rc.bu()-0x30UL,0UL));
+	gradient[4] = rgba(max(rc.ru()-0x18UL,0UL), max(rc.gu()-0x18UL,0UL), max(rc.bu()-0x18UL,0UL));
+	gradient[3] = rgba(max(rc.ru()-0x00UL,0UL), max(rc.gu()-0x00UL,0UL), max(rc.bu()-0x00UL,0UL));
+	gradient[2] = rgba(max(rc.ru(),0x10UL), max(rc.gu(),0x00UL), max(rc.bu(),0x20UL));
+	gradient[1] = rgba(max(rc.ru(),0x30UL), max(rc.gu(),0x30UL), max(rc.bu(),0x30UL));
+	gradient[0] = rgba(max(rc.ru(),0x40UL), max(rc.gu(),0x40UL), max(rc.bu(),0x40UL));
 
 	for (;;) {
 
 		for (uint32_t d = 0; d < 8; d++) {
-			leds.set_ring((walk+d)&0x7,
-				gamma_curve[((gradient[d].r())&0xFF)],
-				gamma_curve[((gradient[d].g())&0xFF)],
-				gamma_curve[((gradient[d].b())&0xFF)]
-			);
+			leds.set_ring((walk+d)&0x7, gradient[d].gamma());
 		}
 
 		walk--;
@@ -3403,18 +3399,18 @@ static void rgb_vertical_wall() {
 
 		rgba color;
 		color = rgba::hsvToRgb(((rgb_walk+  0)/3)%360, 255, 255);
-		leds.set_ring_synced(0, gamma_curve[((color.r())&0xFF)/4], gamma_curve[((color.g())&0xFF)/4], gamma_curve[((color.b())&0xFF)/4]);
+		leds.set_ring_synced(0, (color / 4UL).gamma());
 		color = rgba::hsvToRgb(((rgb_walk+ 30)/3)%360, 255, 255);
-		leds.set_ring_synced(1, gamma_curve[((color.r())&0xFF)/4], gamma_curve[((color.g())&0xFF)/4], gamma_curve[((color.b())&0xFF)/4]);
-		leds.set_ring_synced(7, gamma_curve[((color.r())&0xFF)/4], gamma_curve[((color.g())&0xFF)/4], gamma_curve[((color.b())&0xFF)/4]);
+		leds.set_ring_synced(1, (color / 4UL).gamma());
+		leds.set_ring_synced(7, (color / 4UL).gamma());
 		color = rgba::hsvToRgb(((rgb_walk+120)/3)%360, 255, 255);
-		leds.set_ring_synced(2, gamma_curve[((color.r())&0xFF)/4], gamma_curve[((color.g())&0xFF)/4], gamma_curve[((color.b())&0xFF)/4]);
-		leds.set_ring_synced(6, gamma_curve[((color.r())&0xFF)/4], gamma_curve[((color.g())&0xFF)/4], gamma_curve[((color.b())&0xFF)/4]);
+		leds.set_ring_synced(2, (color / 4UL).gamma());
+		leds.set_ring_synced(6, (color / 4UL).gamma());
 		color = rgba::hsvToRgb(((rgb_walk+210)/3)%360, 255, 255);
-		leds.set_ring_synced(3, gamma_curve[((color.r())&0xFF)/4], gamma_curve[((color.g())&0xFF)/4], gamma_curve[((color.b())&0xFF)/4]);
-		leds.set_ring_synced(5, gamma_curve[((color.r())&0xFF)/4], gamma_curve[((color.g())&0xFF)/4], gamma_curve[((color.b())&0xFF)/4]);
+		leds.set_ring_synced(3, (color / 4UL).gamma());
+		leds.set_ring_synced(5, (color / 4UL).gamma());
 		color = rgba::hsvToRgb(((rgb_walk+230)/3)%360, 255, 255);
-		leds.set_ring_synced(4, gamma_curve[((color.r())&0xFF)/4], gamma_curve[((color.g())&0xFF)/4], gamma_curve[((color.b())&0xFF)/4]);
+		leds.set_ring_synced(4, (color / 4UL).gamma());
 
 		rgb_walk += 7;
 		if (rgb_walk >= 360*3) {
@@ -3499,18 +3495,18 @@ static void shine_horizontal() {
 	for (;;) {
 		rgba color;
 		color = gradient[((rgb_walk+ 0))%256];
-		leds.set_ring_synced(6, gamma_curve[((color.r())&0xFF)], gamma_curve[((color.g())&0xFF)], gamma_curve[((color.b())&0xFF)]);
+		leds.set_ring_synced(6, color.gamma());
 		color = gradient[((rgb_walk+10))%256];
-		leds.set_ring_synced(7, gamma_curve[((color.r())&0xFF)], gamma_curve[((color.g())&0xFF)], gamma_curve[((color.b())&0xFF)]);
-		leds.set_ring_synced(5, gamma_curve[((color.r())&0xFF)], gamma_curve[((color.g())&0xFF)], gamma_curve[((color.b())&0xFF)]);
+		leds.set_ring_synced(7, color.gamma());
+		leds.set_ring_synced(5, color.gamma());
 		color = gradient[((rgb_walk+40))%256];
-		leds.set_ring_synced(0, gamma_curve[((color.r())&0xFF)], gamma_curve[((color.g())&0xFF)], gamma_curve[((color.b())&0xFF)]);
-		leds.set_ring_synced(4, gamma_curve[((color.r())&0xFF)], gamma_curve[((color.g())&0xFF)], gamma_curve[((color.b())&0xFF)]);
+		leds.set_ring_synced(0, color.gamma());
+		leds.set_ring_synced(4, color.gamma());
 		color = gradient[((rgb_walk+70))%256];
-		leds.set_ring_synced(1, gamma_curve[((color.r())&0xFF)], gamma_curve[((color.g())&0xFF)], gamma_curve[((color.b())&0xFF)]);
-		leds.set_ring_synced(3, gamma_curve[((color.r())&0xFF)], gamma_curve[((color.g())&0xFF)], gamma_curve[((color.b())&0xFF)]);
+		leds.set_ring_synced(1, color.gamma());
+		leds.set_ring_synced(3, color.gamma());
 		color = gradient[((rgb_walk+80))%256];
-		leds.set_ring_synced(2, gamma_curve[((color.r())&0xFF)], gamma_curve[((color.g())&0xFF)], gamma_curve[((color.b())&0xFF)]);
+		leds.set_ring_synced(2, color.gamma());
 
 		rgb_walk += 7*switch_dir;
 		if (rgb_walk >= 256) {
@@ -3538,18 +3534,18 @@ static void rgb_horizontal_wall() {
 
 		rgba color;
 		color = rgba::hsvToRgb(((rgb_walk+  0)/3)%360, 255, 255);
-		leds.set_ring_synced(6, gamma_curve[((color.r())&0xFF)/4], gamma_curve[((color.g())&0xFF)/4], gamma_curve[((color.b())&0xFF)/4]);
+		leds.set_ring_synced(6, (color / 4UL).gamma());
 		color = rgba::hsvToRgb(((rgb_walk+ 30)/3)%360, 255, 255);
-		leds.set_ring_synced(7, gamma_curve[((color.r())&0xFF)/4], gamma_curve[((color.g())&0xFF)/4], gamma_curve[((color.b())&0xFF)/4]);
-		leds.set_ring_synced(5, gamma_curve[((color.r())&0xFF)/4], gamma_curve[((color.g())&0xFF)/4], gamma_curve[((color.b())&0xFF)/4]);
+		leds.set_ring_synced(7, (color / 4UL).gamma());
+		leds.set_ring_synced(5, (color / 4UL).gamma());
 		color = rgba::hsvToRgb(((rgb_walk+120)/3)%360, 255, 255);
-		leds.set_ring_synced(0, gamma_curve[((color.r())&0xFF)/4], gamma_curve[((color.g())&0xFF)/4], gamma_curve[((color.b())&0xFF)/4]);
-		leds.set_ring_synced(4, gamma_curve[((color.r())&0xFF)/4], gamma_curve[((color.g())&0xFF)/4], gamma_curve[((color.b())&0xFF)/4]);
+		leds.set_ring_synced(0, (color / 4UL).gamma());
+		leds.set_ring_synced(4, (color / 4UL).gamma());
 		color = rgba::hsvToRgb(((rgb_walk+210)/3)%360, 255, 255);
-		leds.set_ring_synced(1, gamma_curve[((color.r())&0xFF)/4], gamma_curve[((color.g())&0xFF)/4], gamma_curve[((color.b())&0xFF)/4]);
-		leds.set_ring_synced(3, gamma_curve[((color.r())&0xFF)/4], gamma_curve[((color.g())&0xFF)/4], gamma_curve[((color.b())&0xFF)/4]);
+		leds.set_ring_synced(1, (color / 4UL).gamma());
+		leds.set_ring_synced(3, (color / 4UL).gamma());
 		color = rgba::hsvToRgb(((rgb_walk+230)/3)%360, 255, 255);
-		leds.set_ring_synced(2, gamma_curve[((color.r())&0xFF)/4], gamma_curve[((color.g())&0xFF)/4], gamma_curve[((color.b())&0xFF)/4]);
+		leds.set_ring_synced(2, (color / 4UL).gamma());
 
 		rgb_walk += 7;
 		if (rgb_walk >= 360*3) {
@@ -3695,9 +3691,7 @@ static void brilliance() {
 
 		for (uint32_t d = 0; d < 4; d++) {
 			rgba color = gradient[((rgb_walk+ 0))%256];
-			leds.set_bird(d, gamma_curve[((color.r())&0xFF)], 
-							 gamma_curve[((color.g())&0xFF)], 
-							 gamma_curve[((color.b())&0xFF)]);
+			leds.set_bird(d, color.gamma());
 		}
 
 		rgb_walk += switch_dir;
