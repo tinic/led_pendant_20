@@ -1348,11 +1348,11 @@ class SX1280 {
 				
 				SetDioIrqParams( SX1280::IrqMask, SX1280::IrqMask, IRQ_RADIO_NONE, IRQ_RADIO_NONE );
 
-		    	SetRx( ( TickTime ) { RX_TIMEOUT_TICK_SIZE, RX_TIMEOUT_VALUE } );
+		    	SetRx( TickTime { RX_TIMEOUT_TICK_SIZE, RX_TIMEOUT_VALUE } );
 			}
 			
 			void SendBuffer() {
-				SendPayload( txBuffer, LORA_BUFFER_SIZE, ( TickTime ) { RX_TIMEOUT_TICK_SIZE, TX_TIMEOUT_VALUE } ); 
+				SendPayload( txBuffer, LORA_BUFFER_SIZE, TickTime { RX_TIMEOUT_TICK_SIZE, TX_TIMEOUT_VALUE } ); 
 			}
 			
 			void Reset() {
