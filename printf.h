@@ -63,6 +63,6 @@
 extern "C" {
 	extern int simple_printf(const char *fmt, ...);
 	extern int simple_sprintf(const char *buf, const char *fmt, ...);
-};
+}
 
 #endif /* __SIMPLE_PRINTF__ */
