@@ -2834,7 +2834,7 @@ class SX1280 {
 } sx1280;
 
 extern "C" {
-	volatile void PIN_INT0_IRQHandler(void) {
+	void PIN_INT0_IRQHandler(void) {
 		sx1280.OnDioIrq();
 	}
 }
@@ -4084,13 +4084,13 @@ static void shimmer_outside() {
 		int32_t g = eeprom_settings.ring_color.g();
 		int32_t b = eeprom_settings.ring_color.b();
 		if (walk < 8) {
-			r = max(int32_t(0),r - int32_t(walk));
-			g = max(int32_t(0),g - int32_t(walk));
-			b = max(int32_t(0),b - int32_t(walk));
+			r = max(int32_t(0),r - walk);
+			g = max(int32_t(0),g - walk);
+			b = max(int32_t(0),b - walk);
 		} else if (walk < 16) {
-			r = max(int32_t(0),r - int32_t((8-(walk-8))));
-			g = max(int32_t(0),g - int32_t((8-(walk-8))));
-			b = max(int32_t(0),b - int32_t((8-(walk-8))));
+			r = max(int32_t(0),r - (8-(walk-8)));
+			g = max(int32_t(0),g - (8-(walk-8)));
+			b = max(int32_t(0),b - (8-(walk-8)));
 		}
 
 		for (uint32_t d = 0; d < 8; d++) {
@@ -4126,13 +4126,13 @@ static void shimmer_inside() {
 		int32_t g = eeprom_settings.ring_color.g();
 		int32_t b = eeprom_settings.ring_color.b();
 		if (walk < 8) {
-			r = max(int32_t(0),r - int32_t(walk));
-			g = max(int32_t(0),g - int32_t(walk));
-			b = max(int32_t(0),b - int32_t(walk));
+			r = max(int32_t(0),r - walk);
+			g = max(int32_t(0),g - walk);
+			b = max(int32_t(0),b - walk);
 		} else if (walk < 16) {
-			r = max(int32_t(0),r - int32_t((8-(walk-8))));
-			g = max(int32_t(0),g - int32_t((8-(walk-8))));
-			b = max(int32_t(0),b - int32_t((8-(walk-8))));
+			r = max(int32_t(0),r - (8-(walk-8)));
+			g = max(int32_t(0),g - (8-(walk-8)));
+			b = max(int32_t(0),b - (8-(walk-8)));
 		}
 
 		for (uint32_t d = 0; d < 4; d++) {
