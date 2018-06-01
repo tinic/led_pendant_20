@@ -3446,18 +3446,18 @@ static void shine_vertical() {
 	for (;;) {
 		rgba color;
 		color = gradient[((rgb_walk+ 0))%256];
-		leds.set_ring_synced(0, gamma_curve[((color.r())&0xFF)], gamma_curve[((color.g())&0xFF)], gamma_curve[((color.b())&0xFF)]);
+		leds.set_ring_synced(0, color.gamma());
 		color = gradient[((rgb_walk+10))%256];
-		leds.set_ring_synced(1, gamma_curve[((color.r())&0xFF)], gamma_curve[((color.g())&0xFF)], gamma_curve[((color.b())&0xFF)]);
-		leds.set_ring_synced(7, gamma_curve[((color.r())&0xFF)], gamma_curve[((color.g())&0xFF)], gamma_curve[((color.b())&0xFF)]);
+		leds.set_ring_synced(1, color.gamma());
+		leds.set_ring_synced(7, color.gamma());
 		color = gradient[((rgb_walk+40))%256];
-		leds.set_ring_synced(2, gamma_curve[((color.r())&0xFF)], gamma_curve[((color.g())&0xFF)], gamma_curve[((color.b())&0xFF)]);
-		leds.set_ring_synced(6, gamma_curve[((color.r())&0xFF)], gamma_curve[((color.g())&0xFF)], gamma_curve[((color.b())&0xFF)]);
+		leds.set_ring_synced(2, color.gamma());
+		leds.set_ring_synced(6, color.gamma());
 		color = gradient[((rgb_walk+70))%256];
-		leds.set_ring_synced(3, gamma_curve[((color.r())&0xFF)], gamma_curve[((color.g())&0xFF)], gamma_curve[((color.b())&0xFF)]);
-		leds.set_ring_synced(5, gamma_curve[((color.r())&0xFF)], gamma_curve[((color.g())&0xFF)], gamma_curve[((color.b())&0xFF)]);
+		leds.set_ring_synced(3, color.gamma());
+		leds.set_ring_synced(5, color.gamma());
 		color = gradient[((rgb_walk+80))%256];
-		leds.set_ring_synced(4, gamma_curve[((color.r())&0xFF)], gamma_curve[((color.g())&0xFF)], gamma_curve[((color.b())&0xFF)]);
+		leds.set_ring_synced(4, color.gamma());
 
 		rgb_walk += 7;
 		if (rgb_walk >= 256) {
