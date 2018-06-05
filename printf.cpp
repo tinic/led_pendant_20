@@ -40,20 +40,25 @@
 
 extern "C" {
 
+#if 0
 static void putchar(char c)
 {	
 	while ((Chip_UART_ReadLineStatus(LPC_USART) & UART_LSR_THRE) == 0) { }
 	Chip_UART_SendByte(LPC_USART, c);
 }
+#endif  // #if 0
 
 static void simple_outputchar(char **str, char c)
 {
 	if (str) {
 		**str = c;
 		++(*str);
-	} else {
+	} 
+#if 0
+	else {
 		putchar(c);
 	}
+#endif  // #if 0
 }
 
 enum flags {

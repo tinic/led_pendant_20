@@ -2952,14 +2952,13 @@ extern "C" {
 class SDD1306 {
 
 	public:
-			static const uint32_t i2caddr = 0x3C;
+ 			static const uint32_t i2caddr = 0x3C;
 
 			SDD1306() {
 				devicePresent = false;
 			}
 			
 			void Clear(uint32_t value = 0x00) {
-				uint32_t index=0;
 				for (uint32_t c = 0; c < 32; c++) {
 					for (uint32_t d = 0; d < (64/8); d++) {
 						graphics_buffer[(c*(64/8))+d] = value;
@@ -2980,7 +2979,7 @@ class SDD1306 {
 				size_t len = strlen(str);
 				if (x+len > 8) len = 7-x;
 				for (size_t c=0; c<len; c++) {
-					text_buffer_cache[y*8+x+c] = font_conv[str[c]];
+					text_buffer_cache[y*8+x+c] = font_conv[uint8_t(str[c])];
 				}
 			} 
 
@@ -3004,64 +3003,58 @@ class SDD1306 {
 			}
 
 			void Init() const {
-				if (!DevicePresent()) {	
-					return;
+
+				// Toggle RESET line
+				Chip_GPIO_SetPinDIROutput(LPC_GPIO, 0, 8);
+				Chip_GPIO_SetPinState(LPC_GPIO, 0, 8, true);
+				delay(1);
+				Chip_GPIO_SetPinState(LPC_GPIO, 0, 8, false);
+				delay(10);
+				Chip_GPIO_SetPinState(LPC_GPIO, 0, 8, true);
+
+
+				static uint8_t startup_sequence[] = {
+					0xAE,			// Display off
+
+					0xD5, 0x80,		// Set Display Clock Divide Ratio
+					
+					0xA8, 0x1F,		// Set Multiplex Ratio
+					
+					0xD3, 0x00,		// Set Display Offset
+
+					0x8D, 0x14,		// Enable Charge Pump
+
+					0x40,			// Set Display RAM start
+
+					0xA6,			// Set to normal display (0xA7 == inverse)
+					
+					0xA4,			// Force Display From RAM On
+
+					0xA1,			// Set Segment Re-map
+
+					0xC8,			// Set COM Output Scan Direction (flipped)
+					
+					0xDA, 0x12, 	// Set Pins configuration
+				
+					0x81, 0xFF,		// Set Contrast (0x00-0xFF)
+					
+					0xD9, 0xF1,		// Set Pre-Charge period
+
+					0xDB, 0x40,		// Adjust Vcomm regulator output
+
+					0xAF			// Display on
+				};
+
+				for (size_t c = 0; c < sizeof(startup_sequence); c++) {
+					WriteCommand(startup_sequence[c]);
 				}
 
-				Chip_GPIO_SetPinDIROutput(LPC_GPIO, 0, 8);
-
-				Chip_GPIO_SetPinState(LPC_GPIO, 0, 8, true);
-
-				delay(1);
-
-				Chip_GPIO_SetPinState(LPC_GPIO, 0, 8, false);
-
-				delay(10);
-
-				Chip_GPIO_SetPinState(LPC_GPIO, 0, 8, true);
-
-				WriteCommand(0xAE);
-
-				WriteCommand(0xD5);
-				WriteCommand(0x80);
-
-				WriteCommand(0xA8);
-				WriteCommand(0x1F);
-
-				WriteCommand(0xD3);
-				WriteCommand(0x00);
-
-				WriteCommand(0x8D);
-				WriteCommand(0x14);
-
-				WriteCommand(0x40);
-
-				WriteCommand(0xA6);
-
-				WriteCommand(0xA4);
-
-				WriteCommand(0xA1);
-
-				WriteCommand(0xC8);
-
-				WriteCommand(0xDA);
-				WriteCommand(0x12);
-
-				WriteCommand(0x81);
-				WriteCommand(0xFF);
-
-				WriteCommand(0xD9);
-				WriteCommand(0xF1);
-
-				WriteCommand(0xDB);
-				WriteCommand(0x40);
-
-				WriteCommand(0xAF);
 			}
 
 			bool DevicePresent() const { return devicePresent; }
 
 	private:
+
 			void DisplayChar(uint32_t x, uint32_t y, char ch) {
 				WriteCommand(0xB0+y);
 				x=x*8+32;
@@ -3071,7 +3064,8 @@ class SDD1306 {
 			}
 
 			void WriteCommand(uint8_t v) const {
-				uint8_t control[2] = { 0 };
+				uint8_t control[2];
+				control[0] = 0;
 				control[1] = v;
 				Chip_I2C_MasterSend(I2C0, i2caddr, control, 2);
 			}
@@ -3098,7 +3092,7 @@ class SDD1306 {
 					Chip_I2C_MasterSend(I2C0, i2caddr, line, 0x41);
 				}
 			}
-};
+};  // class SDD1306
 
 class Setup {
 
@@ -3164,14 +3158,14 @@ class Setup {
 					}
 				}
 			}
-};
+};  // class Setup {
 
-}
+}  // namespace {
 
 class Effects {
 
-	Random &random;
 	EEPROM &settings;
+	Random &random;
 	LEDs &leds;
 	SPI &spi;
 	SDD1306 &sdd1306;
@@ -3218,7 +3212,7 @@ static void advance_mode(uint32_t mode) {
 
 
 	bool test_button() {
-		static uint32_t last_config_time = 0;
+		//static uint32_t last_config_time = 0;
 		// Don't take into account this button press if we just
 		// came out of configuration
 	//	if ((system_clock_ms - last_config_time) < 1000) {
@@ -3226,7 +3220,7 @@ static void advance_mode(uint32_t mode) {
 	//	}
 		if (!Chip_GPIO_GetPinState(LPC_GPIO, 1, 25) ||
 			!Chip_GPIO_GetPinState(LPC_GPIO, 0, 1)) {
-			uint32_t d_time = system_clock_ms;
+			//uint32_t d_time = system_clock_ms;
 			delay(100);
 			for (;!Chip_GPIO_GetPinState(LPC_GPIO, 1, 25) ||
 				  !Chip_GPIO_GetPinState(LPC_GPIO, 0, 1);) {
@@ -3254,19 +3248,21 @@ static void advance_mode(uint32_t mode) {
 
 		spi.push_frame(leds, int32_t(ms));
 
-		sprintf(frame_str, "%08x", frame_counter++);
-		sdd1306.PlaceAsciiStr(0,0,frame_str);
+		if (sdd1306.DevicePresent()) {
+			sprintf(frame_str, "%08x", frame_counter++);
+			sdd1306.PlaceAsciiStr(0,0,frame_str);
 
-		sprintf(frame_str, "p:%02xc:%02x", settings.program_curr, settings.program_change_count);
-		sdd1306.PlaceAsciiStr(0,1,frame_str);
+			sprintf(frame_str, "p:%02xc:%02x", settings.program_curr, settings.program_change_count);
+			sdd1306.PlaceAsciiStr(0,1,frame_str);
 
-		sprintf(frame_str, "b:%06x", uint32_t(settings.bird_color));
-		sdd1306.PlaceAsciiStr(0,2,frame_str);
+			sprintf(frame_str, "b:%06x", uint32_t(settings.bird_color));
+			sdd1306.PlaceAsciiStr(0,2,frame_str);
 
-		sprintf(frame_str, "r:%06x", uint32_t(settings.ring_color));
-		sdd1306.PlaceAsciiStr(0,3,frame_str);
+			sprintf(frame_str, "r:%06x", uint32_t(settings.ring_color));
+			sdd1306.PlaceAsciiStr(0,3,frame_str);
 
-		sdd1306.Display();
+			sdd1306.Display();
+		}
 
 		return test_button();
 	}
@@ -4436,7 +4432,7 @@ static void advance_mode(uint32_t mode) {
 			}
 		}
 	}
-};
+};  // class Effects
 
 extern "C" {
 	void SysTick_Handler(void)
@@ -4489,11 +4485,13 @@ int main(void)
 //	flash_storage.init();
 #endif  // #ifndef NO_FLASH
 
-	sdd1306.Init();
-	sdd1306.Clear();
+	if (sdd1306.DevicePresent()) {
+		sdd1306.Init();
+		sdd1306.Clear();
+	}
 
 	// start 1ms timer
-//	SysTick_Config(SystemCoreClock / 1000);
+	SysTick_Config(SystemCoreClock / 1000);
 
 	Effects effects(settings, random, leds, spi, sdd1306);
 	
