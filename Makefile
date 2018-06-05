@@ -1,12 +1,13 @@
 # Minimal gcc makefile for LPC11U34
 
 # use the arm cross compiler, not std gcc
-TRGT = arm-none-eabi-
+TRGT = /opt/gcc-arm-none-eabi/bin/arm-none-eabi-
 CC = $(TRGT)gcc
 CXX = $(TRGT)g++
 CP = $(TRGT)objcopy
 DUMP = $(TRGT)objdump
-CHECKSUM = ./lpc-checksum-fix/lpc-checksum-fix
+CHECKSUM = ./checksum
+#CHECKSUM = ./lpc-checksum-fix/lpc-checksum-fix
 TTY = /dev/ttyUSB*
 
 
@@ -26,7 +27,7 @@ else
 endif
 
 # compiler and linker settings
-COMMONFLAGS = -Wall -Wpedantic -Wextra -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wnull-dereference -Wdouble-promotion -Wshadow -Wno-unused-parameter -DCORE_M0 -mcpu=cortex-m0 -I./ -Ilpc_chip_11uxx_lib -Ilpc_chip_11uxx_lib/inc -Os -ggdb
+COMMONFLAGS = -Wall -Wpedantic -Wextra -Wlogical-op -Wnull-dereference -Wdouble-promotion -Wshadow -Wno-unused-parameter -DCORE_M0 -mcpu=cortex-m0 -I./ -Ilpc_chip_11uxx_lib -Ilpc_chip_11uxx_lib/inc -Os -ggdb
 CFLAGS = $(COMMONFLAGS) -Wjump-misses-init -std=c11
 CXXFLAGS = $(COMMONFLAGS) -std=c++14 -fno-rtti -fno-exceptions 
 LDFLAGS = -Xlinker -print-memory-usage -Wl,--gc-sections,--script=LPC11U34_311.ld -nostartfiles
@@ -56,8 +57,10 @@ firmware.elf: $(OBJS)
 	$(CC) -o $@ $(CFLAGS) $(LDFLAGS) $^
 
 %.bin: %.elf
-	$(CP) -O binary $< $@.nochksum.bin
-	$(CHECKSUM) $@.nochksum.bin $@
+	$(CP) -O binary $< $@
+	$(CHECKSUM) -v -p LPC11U34 $@
+#	$(CP) -O binary $< $@.nochksum.bin
+#	$(CHECKSUM) $@.nochksum.bin $@
 
 %.hex: %.bin
 	$(CP) -I binary $< -O ihex $@
