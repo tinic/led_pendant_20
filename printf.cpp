@@ -38,7 +38,7 @@
 
 #include "printf.h"
 
-#ifdef NO_SX1280
+extern "C" {
 
 static void putchar(char c)
 {	
@@ -246,6 +246,5 @@ int simple_sprintf(char *buf, const char *fmt, ...)
 	return r;
 }
 
-#endif  // #ifdef NO_SX1280
-
+}
 
