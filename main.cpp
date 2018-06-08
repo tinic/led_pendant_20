@@ -18,9 +18,7 @@
 #define I2C_FASTPLUS_BIT IOCON_FASTI2C_EN
 #endif
 
-#define NO_SX1280
 #define NO_FLASH
-#define NO_EEPROM
 
 namespace std {
     void __throw_bad_function_call() { for(;;) {} }
@@ -492,7 +490,7 @@ static const uint32_t ring_colors[] = {
 };
 
 static void delay(uint32_t ms) {
-	for (volatile uint32_t i = 0; i < ms*2400; i++) {}
+	for (volatile uint32_t i = 0; i < ms*3000; i++) {}
 }
 
 class Random {
@@ -627,17 +625,16 @@ public:
 
 	void load() {
 		unsigned int param[5] = { 0 };
-		param[0] = 62; // Write EEPROM
-		param[1] = 0;
-		param[2] = (uintptr_t)this;
-		param[3] = sizeof(EEPROM);
-		param[4] = SystemCoreClock;
+		param[0] = 62; // Read EEPROM
+		param[1] = 0; // EEPROM address
+		param[2] = (uintptr_t)this; // RAM address
+		param[3] = sizeof(EEPROM); // Number of bytes
+		param[4] = SystemCoreClock / 1000; // CCLK
 		unsigned int result[4] = { 0 };
 		iap_entry(param, result);
 
-		program_count = 27;
-
-		if (bird_color == 0UL ||
+		if (program_count != 27 ||
+			bird_color == 0UL ||
 			bird_color_index > 16 ||
 			ring_color == 0UL ||
 			ring_color_index > 16 ) {
@@ -645,17 +642,20 @@ public:
 			bird_color = bird_colors[bird_color_index];
 			ring_color_index = 5;
 			ring_color = ring_colors[ring_color_index];
+			program_count = 27;
+			program_curr = 0;
+			program_change_count = 0;
 			save();
 		}
 	}
 
 	void save() {
 		unsigned int param[5] = { 0 };
-		param[0] = 61; // Read EEPROM
-		param[1] = 0;
-		param[2] = (uintptr_t)this;
-		param[3] = sizeof(EEPROM);
-		param[4] = SystemCoreClock;
+		param[0] = 61; // Write EEPROM
+		param[1] = 0; // EEPROM address
+		param[2] = (uintptr_t)this; // RAM address
+		param[3] = sizeof(EEPROM); // Number of bytes
+		param[4] = SystemCoreClock / 1000; // CCLK
 		unsigned int result[4] = { 0 };
 		iap_entry(param, result);
 	}
@@ -869,7 +869,228 @@ private:
 };
 
 
-#ifndef NO_SX1280
+class SDD1306 {
+
+	public:
+ 			static const uint32_t i2caddr = 0x3C;
+
+			SDD1306() {
+				devicePresent = false;
+			}
+			
+			void Clear(uint32_t value = 0x00) {
+				for (uint32_t c = 0; c < 32; c++) {
+					for (uint32_t d = 0; d < (64/8); d++) {
+						graphics_buffer[(c*(64/8))+d] = value;
+					}
+				}
+				DisplayGraphicsBuffer();
+				memset(text_buffer_cache, 0, sizeof(text_buffer_cache));
+				memset(text_buffer_screen, 0, sizeof(text_buffer_screen));
+			}
+
+			void PlaceC16Char(uint32_t x, uint32_t y, uint8_t code) {
+				if (y>3 || x>7) return;
+				text_buffer_cache[y*8+x] = code;
+			}
+
+			void PlaceAsciiStr(uint32_t x, uint32_t y, const char *str) {
+				if (y>3 || x>7) return;
+				size_t len = strlen(str);
+				if (x+len > 8) len = 7-x;
+				for (size_t c=0; c<len; c++) {
+					text_buffer_cache[y*8+x+c] = font_conv[uint8_t(str[c])];
+				}
+			} 
+
+			void Display() {
+				for (uint32_t y=0; y<4; y++) {
+					for (uint32_t x=0; x<8; x++) {
+						if (text_buffer_cache[y*8+x] != text_buffer_screen[y*8+x]) {
+							text_buffer_screen[y*8+x] = text_buffer_cache[y*8+x];
+							DisplayChar(x,y,text_buffer_screen[y*8+x]);
+						}
+					}
+				}
+			}
+
+			void DisplayOn() {
+				WriteCommand(0xAF);
+			}
+
+			void DisplayOff() {
+				WriteCommand(0xAE);
+			}
+
+			void DisplayUID() {
+				unsigned int param[1] = { 0 };
+				param[0] = 58; // Read UID
+				unsigned int result[4] = { 0 };
+				iap_entry(param, result);
+
+				char str[32];
+				sprintf(str,"%08x",result[0]);
+				PlaceAsciiStr(0,0,str);
+				
+				sprintf(str,"%08x",result[1]);
+				PlaceAsciiStr(0,1,str);
+				
+				sprintf(str,"%08x",result[2]);
+				PlaceAsciiStr(0,2,str);
+				
+				sprintf(str,"%08x",result[3]);
+				PlaceAsciiStr(0,3,str);
+				
+				Display();
+			}
+			
+			void Init() const {
+
+				// Toggle RESET line
+				Chip_GPIO_SetPinDIROutput(LPC_GPIO, 0, 8);
+				Chip_GPIO_SetPinState(LPC_GPIO, 0, 8, true);
+				delay(1);
+				Chip_GPIO_SetPinState(LPC_GPIO, 0, 8, false);
+				delay(10);
+				Chip_GPIO_SetPinState(LPC_GPIO, 0, 8, true);
+
+
+				static uint8_t startup_sequence[] = {
+					0xAE,			// Display off
+
+					0xD5, 0x80,		// Set Display Clock Divide Ratio
+					
+					0xA8, 0x1F,		// Set Multiplex Ratio
+					
+					0xD3, 0x00,		// Set Display Offset
+
+					0x8D, 0x14,		// Enable Charge Pump
+
+					0x40,			// Set Display RAM start
+
+					0xA6,			// Set to normal display (0xA7 == inverse)
+					
+					0xA4,			// Force Display From RAM On
+
+					0xA1,			// Set Segment Re-map
+
+					0xC8,			// Set COM Output Scan Direction (flipped)
+					
+					0xDA, 0x12, 	// Set Pins configuration
+				
+					0x81, 0xFF,		// Set Contrast (0x00-0xFF)
+					
+					0xD9, 0xF1,		// Set Pre-Charge period
+
+					0xDB, 0x40,		// Adjust Vcomm regulator output
+
+					0xAF			// Display on
+				};
+
+				for (size_t c = 0; c < sizeof(startup_sequence); c++) {
+					WriteCommand(startup_sequence[c]);
+				}
+
+			}
+
+			bool DevicePresent() const { return devicePresent; }
+
+	private:
+
+			void DisplayChar(uint32_t x, uint32_t y, char ch) {
+				WriteCommand(0xB0+y);
+				x=x*8+32;
+				WriteCommand(0x0f&(x   )); // 0x20 offset
+				WriteCommand(0x10|(x>>4)); // 0x20 offset
+				Chip_I2C_MasterSend(I2C0, i2caddr, &font_data[ch*9], 0x9);
+			}
+
+			void WriteCommand(uint8_t v) const {
+				uint8_t control[2];
+				control[0] = 0;
+				control[1] = v;
+				Chip_I2C_MasterSend(I2C0, i2caddr, control, 2);
+			}
+
+
+			friend class Setup;
+
+			bool devicePresent;
+
+			uint8_t text_buffer_cache[8*4];
+			uint8_t text_buffer_screen[8*4];
+
+
+			uint8_t graphics_buffer[(64/8) * 32];
+
+			void DisplayGraphicsBuffer() {
+				uint8_t line[65];
+				line[0] = 0x40;
+				for (uint32_t y = 0; y < 4; y ++) {
+					WriteCommand(0xB0+y);
+					WriteCommand(0x00); // 0x00 +
+					WriteCommand(0x12); // 0x20 offset
+					memcpy(&line[1],&graphics_buffer[y*0x40],0x40);
+					Chip_I2C_MasterSend(I2C0, i2caddr, line, 0x41);
+				}
+			}
+};  // class SDD1306
+
+class Setup {
+
+	public:
+			Setup(SDD1306 &sdd1306) {
+				InitGPIO();
+				InitPININT();
+				InitI2C(sdd1306);
+			}
+
+	private:
+			void InitGPIO() {
+				Chip_GPIO_Init(LPC_GPIO);
+			}
+			
+			void InitPININT() {
+				Chip_PININT_Init(LPC_PININT);
+			}
+
+			void InitI2C(SDD1306 &sdd1306) {
+				Chip_SYSCTL_PeriphReset(RESET_I2C0);
+
+				Chip_IOCON_PinMuxSet(LPC_IOCON, 0, 4, IOCON_FUNC1 | I2C_FASTPLUS_BIT);
+				Chip_IOCON_PinMuxSet(LPC_IOCON, 0, 5, IOCON_FUNC1 | I2C_FASTPLUS_BIT);
+
+				Chip_I2C_Init(I2C0);
+				Chip_I2C_SetClockRate(I2C0, I2C_DEFAULT_SPEED);
+
+				NVIC_DisableIRQ(I2C0_IRQn);
+				Chip_I2C_SetMasterEventHandler(I2C0, Chip_I2C_EventHandlerPolling);
+
+				ProbeI2CSlaves(sdd1306);
+			}
+
+			void ProbeI2CSlaves(SDD1306 &sdd1306) {
+				int i;
+				uint8_t ch[2];
+
+				for (i = 0; i <= 0x7F; i++) {
+					if (!(i & 0x0F)) {
+					}
+					if ((i <= 7) || (i > 0x78)) {
+						continue;
+					}
+					if (Chip_I2C_MasterRead(I2C0, i, ch, 1 + (i == 0x48)) > 0) {
+						switch(i) {
+							case	sdd1306.i2caddr:
+									sdd1306.devicePresent = true;
+									break;
+						}
+					}
+				}
+			}
+};  // class Setup {
+
+
 class SX1280 {
 	public:
 			enum {
@@ -1534,11 +1755,14 @@ class SX1280 {
 			#define RANGING_SUPPORT
 			#define LORA_SUPPORT
 			
-			const uint32_t BUSY_PIN = 0x0000;
-			const uint32_t DIO1_PIN = 0x0008;
-			const uint32_t DIO2_PIN = 0x0115;
-			const uint32_t DIO3_PIN = 0x011F;
-			const uint32_t RESET_PIN = 0x011F;
+			const uint32_t BUSY_PIN = 0x0118; // 1_24
+			const uint32_t DIO1_PIN = 0x0006; // 0_6
+			const uint32_t RESET_PIN = 0x011C; // 1_28
+			
+			const uint32_t UART_TXD = 0x010D; // 1_13
+			const uint32_t UART_RXD = 0x010E; // 1_14
+			const uint32_t UART_CTS = 0x0007; // 0_7
+			const uint32_t UART_RTS = 0x0011; // 0_17
 			
 			const IRQn_Type INT_IRQn = PIN_INT0_IRQn;
 			const uint32_t INT_NUM = 0;
@@ -1567,23 +1791,41 @@ class SX1280 {
 
 			SX1280() { }
 			
-			void Init(bool pollMode) {
+			void Init(SDD1306 &sdd1306, bool pollMode) {
 
-				Chip_IOCON_PinMuxSet(LPC_IOCON, (BUSY_PIN>>8), (BUSY_PIN&0xFF), IOCON_FUNC0 | IOCON_MODE_PULLUP);
+				// Configure control pins
+				Chip_IOCON_PinMuxSet(LPC_IOCON, (RESET_PIN>>8), (RESET_PIN&0xFF), IOCON_FUNC0 | IOCON_MODE_PULLUP);
+				Chip_GPIO_SetPinDIROutput(LPC_GPIO, (RESET_PIN>>8), (RESET_PIN&0xFF));
+
+				Chip_IOCON_PinMuxSet(LPC_IOCON, (BUSY_PIN>>8), (BUSY_PIN&0xFF), IOCON_FUNC0 | IOCON_MODE_INACT);
 				Chip_GPIO_SetPinDIRInput(LPC_GPIO, (BUSY_PIN>>8), (BUSY_PIN&0xFF));
 				
-				Chip_IOCON_PinMuxSet(LPC_IOCON, (DIO1_PIN>>8), (DIO1_PIN&0xFF), IOCON_FUNC0 | IOCON_MODE_PULLUP);
+				Chip_IOCON_PinMuxSet(LPC_IOCON, (DIO1_PIN>>8), (DIO1_PIN&0xFF), IOCON_FUNC0 | IOCON_MODE_INACT);
 				Chip_GPIO_SetPinDIRInput(LPC_GPIO, (DIO1_PIN>>8), (DIO1_PIN&0xFF));
 
-				Chip_IOCON_PinMuxSet(LPC_IOCON, (DIO2_PIN>>8), (DIO2_PIN&0xFF), IOCON_FUNC0 | IOCON_MODE_PULLUP);
-				Chip_GPIO_SetPinDIRInput(LPC_GPIO, (DIO2_PIN>>8), (DIO2_PIN&0xFF));
+				// Configure UART pins
+				Chip_IOCON_PinMuxSet(LPC_IOCON, (UART_TXD>>8), (UART_TXD&0xFF), IOCON_FUNC3 | IOCON_MODE_INACT);
+				Chip_GPIO_SetPinDIROutput(LPC_GPIO, (UART_TXD>>8), (UART_TXD&0xFF));
 
-				Chip_IOCON_PinMuxSet(LPC_IOCON, (DIO3_PIN>>8), (DIO3_PIN&0xFF), IOCON_FUNC0 | IOCON_MODE_PULLUP);
-				Chip_GPIO_SetPinDIRInput(LPC_GPIO, (DIO3_PIN>>8), (DIO3_PIN&0xFF));
+				Chip_IOCON_PinMuxSet(LPC_IOCON, (UART_RXD>>8), (UART_RXD&0xFF), IOCON_FUNC3 | IOCON_MODE_INACT);
+				Chip_GPIO_SetPinDIRInput(LPC_GPIO, (UART_RXD>>8), (UART_RXD&0xFF));
+
+				Chip_IOCON_PinMuxSet(LPC_IOCON, (UART_RTS>>8), (UART_RTS&0xFF), IOCON_FUNC1 | IOCON_MODE_INACT);
+				Chip_GPIO_SetPinDIROutput(LPC_GPIO, (UART_RTS>>8), (UART_RTS&0xFF));
+
+				Chip_IOCON_PinMuxSet(LPC_IOCON, (UART_CTS>>8), (UART_CTS&0xFF), IOCON_FUNC1 | IOCON_MODE_INACT);
+				Chip_GPIO_SetPinDIRInput(LPC_GPIO, (UART_CTS>>8), (UART_CTS&0xFF));
+
+				Chip_UART_Init(LPC_USART);
+				Chip_UART_SetBaud(LPC_USART, 115200);
+				Chip_UART_SetupFIFOS(LPC_USART, (UART_FCR_FIFO_EN | UART_FCR_RX_RS | UART_FCR_TX_RS));
+				Chip_UART_ConfigData(LPC_USART, (UART_LCR_WLEN8 | UART_LCR_SBS_1BIT | UART_LCR_PARITY_EN | UART_LCR_PARITY_EVEN));
+				Chip_UART_SetModemControl(LPC_USART, (UART_MCR_AUTO_RTS_EN | UART_MCR_AUTO_CTS_EN));
 				
-				Chip_IOCON_PinMuxSet(LPC_IOCON, (RESET_PIN>>8), (RESET_PIN&0xFF), IOCON_FUNC0 | IOCON_MODE_PULLUP);
-				Chip_GPIO_SetPinDIRInput(LPC_GPIO, (RESET_PIN>>8), (RESET_PIN&0xFF));
-			
+				Chip_UART_TXEnable(LPC_USART);
+
+				Reset();
+				
 				if (!pollMode) {
 					Chip_PININT_SetPinModeEdge(LPC_PININT, INT_CHN);
 					Chip_PININT_EnableIntLow(LPC_PININT, INT_CHN);
@@ -1595,23 +1837,26 @@ class SX1280 {
 					NVIC_EnableIRQ(INT_IRQn);  
 				}
 
-				putchar( 0x98 );                     // Reversed opcode for read register (0x19)
-				putchar( 0x10 );                     // Reversed MSB register address (0x08)
-				putchar( 0x18 );                     // Reversed LSB register address (0x18)
-				putchar( 0x80 );            		 // Reversed value for reading only 1 byte (0x01)
+				//
+				// Wait for radio to return a standby status.
+				// We seem to get sync issues at the 
+				// beginning of our UART session. Shaky stuff.
+				//
+				// Note that the reference code seems to conflict with
+				// current documentation which says that LSB is default,
+				// which I have confirmed. So not need to set the 'secret'
+				// MSB/LSB register bit.
+				//
+				// The radio should always be in standby RC mode after
+				// a reset.
+				//
 
-				uint8_t regVal = getchar( ) & 0xF3;  // Read reversed value and mask it
+				do {
+					putchar( RADIO_GET_STATUS );
+				} while ( getchar( ) != 0x40 );
 
-				putchar( 0x18 );            		 // Reversed opcode for read register (0x18)
-				putchar( 0x10 );            		 // Reversed MSB register address (0x08)
-				putchar( 0x18 );            		 // Reversed LSB register address (0x18)
-				putchar( 0x80 );            		 // Reversed value for writing only 1 byte (0x01)
-				putchar( regVal );           	     // The new value of the register
-
-				// After this point, the UART is running standard mode: 8 data bit, 1 even
-				// parity bit, 1 stop bit, 115200 baud, LSB first
 				delay( 10 );
-				
+
 				Wakeup();
 
 				SetStandby( STDBY_RC );
@@ -1640,6 +1885,7 @@ class SX1280 {
 				SetDioIrqParams( SX1280::IrqMask, SX1280::IrqMask, IRQ_RADIO_NONE, IRQ_RADIO_NONE );
 
 		    	SetRx( TickTime { RX_TIMEOUT_TICK_SIZE, RX_TIMEOUT_VALUE } );
+
 			}
 			
 			void SendBuffer() {
@@ -1648,14 +1894,23 @@ class SX1280 {
 			
 			void Reset() {
 				disableIRQ();
+				// Set SCK/RTSM to low during reset
+				Chip_IOCON_PinMuxSet(LPC_IOCON, (UART_RTS>>8), (UART_RTS&0xFF), IOCON_FUNC0 | IOCON_MODE_INACT);
+				Chip_GPIO_SetPinDIROutput(LPC_GPIO, (UART_RTS>>8), (UART_RTS&0xFF));
+				Chip_GPIO_SetPinOutLow(LPC_GPIO, (UART_RTS>>8), (UART_RTS&0xFF));
+
 				delay( 20 );
 				Chip_GPIO_SetPinDIROutput(LPC_GPIO, (RESET_PIN>>8), (RESET_PIN&0xFF));
 				Chip_GPIO_SetPinOutLow(LPC_GPIO, (RESET_PIN>>8), (RESET_PIN&0xFF));
 				delay( 50 );
 				Chip_GPIO_SetPinOutHigh(LPC_GPIO, (RESET_PIN>>8), (RESET_PIN&0xFF));
-				Chip_GPIO_SetPinDIRInput(LPC_GPIO, (RESET_PIN>>8), (RESET_PIN&0xFF));
 				delay( 20 );
 				enableIRQ();
+
+				Chip_IOCON_PinMuxSet(LPC_IOCON, (UART_RTS>>8), (UART_RTS&0xFF), IOCON_FUNC1 | IOCON_MODE_INACT);
+				Chip_GPIO_SetPinDIROutput(LPC_GPIO, (UART_RTS>>8), (UART_RTS&0xFF));
+				
+				WaitOnBusy();
 			}
 			
 			void Wakeup() {
@@ -2947,220 +3202,6 @@ extern "C" {
 		sx1280.OnDioIrq();
 	}
 }
-#endif  // #ifndef NO_SX1280
-
-class SDD1306 {
-
-	public:
- 			static const uint32_t i2caddr = 0x3C;
-
-			SDD1306() {
-				devicePresent = false;
-			}
-			
-			void Clear(uint32_t value = 0x00) {
-				for (uint32_t c = 0; c < 32; c++) {
-					for (uint32_t d = 0; d < (64/8); d++) {
-						graphics_buffer[(c*(64/8))+d] = value;
-					}
-				}
-				DisplayGraphicsBuffer();
-				memset(text_buffer_cache, 0, sizeof(text_buffer_cache));
-				memset(text_buffer_screen, 0, sizeof(text_buffer_screen));
-			}
-
-			void PlaceC16Char(uint32_t x, uint32_t y, uint8_t code) {
-				if (y>3 || x>7) return;
-				text_buffer_cache[y*8+x] = code;
-			}
-
-			void PlaceAsciiStr(uint32_t x, uint32_t y, const char *str) {
-				if (y>3 || x>7) return;
-				size_t len = strlen(str);
-				if (x+len > 8) len = 7-x;
-				for (size_t c=0; c<len; c++) {
-					text_buffer_cache[y*8+x+c] = font_conv[uint8_t(str[c])];
-				}
-			} 
-
-			void Display() {
-				for (uint32_t y=0; y<4; y++) {
-					for (uint32_t x=0; x<8; x++) {
-						if (text_buffer_cache[y*8+x] != text_buffer_screen[y*8+x]) {
-							text_buffer_screen[y*8+x] = text_buffer_cache[y*8+x];
-							DisplayChar(x,y,text_buffer_screen[y*8+x]);
-						}
-					}
-				}
-			}
-
-			void DisplayOn() {
-				WriteCommand(0xAF);
-			}
-
-			void DisplayOff() {
-				WriteCommand(0xAE);
-			}
-
-			void Init() const {
-
-				// Toggle RESET line
-				Chip_GPIO_SetPinDIROutput(LPC_GPIO, 0, 8);
-				Chip_GPIO_SetPinState(LPC_GPIO, 0, 8, true);
-				delay(1);
-				Chip_GPIO_SetPinState(LPC_GPIO, 0, 8, false);
-				delay(10);
-				Chip_GPIO_SetPinState(LPC_GPIO, 0, 8, true);
-
-
-				static uint8_t startup_sequence[] = {
-					0xAE,			// Display off
-
-					0xD5, 0x80,		// Set Display Clock Divide Ratio
-					
-					0xA8, 0x1F,		// Set Multiplex Ratio
-					
-					0xD3, 0x00,		// Set Display Offset
-
-					0x8D, 0x14,		// Enable Charge Pump
-
-					0x40,			// Set Display RAM start
-
-					0xA6,			// Set to normal display (0xA7 == inverse)
-					
-					0xA4,			// Force Display From RAM On
-
-					0xA1,			// Set Segment Re-map
-
-					0xC8,			// Set COM Output Scan Direction (flipped)
-					
-					0xDA, 0x12, 	// Set Pins configuration
-				
-					0x81, 0xFF,		// Set Contrast (0x00-0xFF)
-					
-					0xD9, 0xF1,		// Set Pre-Charge period
-
-					0xDB, 0x40,		// Adjust Vcomm regulator output
-
-					0xAF			// Display on
-				};
-
-				for (size_t c = 0; c < sizeof(startup_sequence); c++) {
-					WriteCommand(startup_sequence[c]);
-				}
-
-			}
-
-			bool DevicePresent() const { return devicePresent; }
-
-	private:
-
-			void DisplayChar(uint32_t x, uint32_t y, char ch) {
-				WriteCommand(0xB0+y);
-				x=x*8+32;
-				WriteCommand(0x0f&(x   )); // 0x20 offset
-				WriteCommand(0x10|(x>>4)); // 0x20 offset
-				Chip_I2C_MasterSend(I2C0, i2caddr, &font_data[ch*9], 0x9);
-			}
-
-			void WriteCommand(uint8_t v) const {
-				uint8_t control[2];
-				control[0] = 0;
-				control[1] = v;
-				Chip_I2C_MasterSend(I2C0, i2caddr, control, 2);
-			}
-
-
-			friend class Setup;
-
-			bool devicePresent;
-
-			uint8_t text_buffer_cache[8*4];
-			uint8_t text_buffer_screen[8*4];
-
-
-			uint8_t graphics_buffer[(64/8) * 32];
-
-			void DisplayGraphicsBuffer() {
-				uint8_t line[65];
-				line[0] = 0x40;
-				for (uint32_t y = 0; y < 4; y ++) {
-					WriteCommand(0xB0+y);
-					WriteCommand(0x00); // 0x00 +
-					WriteCommand(0x12); // 0x20 offset
-					memcpy(&line[1],&graphics_buffer[y*0x40],0x40);
-					Chip_I2C_MasterSend(I2C0, i2caddr, line, 0x41);
-				}
-			}
-};  // class SDD1306
-
-class Setup {
-
-	public:
-			Setup(SDD1306 &sdd1306) {
-				InitGPIO();
-				InitPININT();
-				InitUART();
-				InitI2C(sdd1306);
-			}
-
-	private:
-			void InitGPIO() {
-				Chip_GPIO_Init(LPC_GPIO);
-			}
-			
-			void InitPININT() {
-				Chip_PININT_Init(LPC_PININT);
-			}
-
-			void InitUART() {
-				Chip_IOCON_PinMuxSet(LPC_IOCON, 1, 13, IOCON_FUNC3 | IOCON_MODE_INACT);	/* PIO0_13 used for RXD */
-				Chip_IOCON_PinMuxSet(LPC_IOCON, 1, 14, IOCON_FUNC3 | IOCON_MODE_INACT);	/* PIO0_14 used for TXD */
-
-				Chip_UART_Init(LPC_USART);
-				Chip_UART_SetBaud(LPC_USART, 115200);
-				Chip_UART_SetupFIFOS(LPC_USART, (UART_FCR_FIFO_EN | UART_FCR_RX_RS | UART_FCR_TX_RS));
-				Chip_UART_ConfigData(LPC_USART, (UART_LCR_WLEN8 | UART_LCR_SBS_1BIT | UART_LCR_PARITY_DIS));
-				Chip_UART_TXEnable(LPC_USART);
-			}
-
-			void InitI2C(SDD1306 &sdd1306) {
-				Chip_SYSCTL_PeriphReset(RESET_I2C0);
-
-				Chip_IOCON_PinMuxSet(LPC_IOCON, 0, 4, IOCON_FUNC1 | I2C_FASTPLUS_BIT);
-				Chip_IOCON_PinMuxSet(LPC_IOCON, 0, 5, IOCON_FUNC1 | I2C_FASTPLUS_BIT);
-
-				Chip_I2C_Init(I2C0);
-				Chip_I2C_SetClockRate(I2C0, I2C_DEFAULT_SPEED);
-
-				NVIC_DisableIRQ(I2C0_IRQn);
-				Chip_I2C_SetMasterEventHandler(I2C0, Chip_I2C_EventHandlerPolling);
-
-				ProbeI2CSlaves(sdd1306);
-			}
-
-			void ProbeI2CSlaves(SDD1306 &sdd1306) {
-				int i;
-				uint8_t ch[2];
-
-				for (i = 0; i <= 0x7F; i++) {
-					if (!(i & 0x0F)) {
-					}
-					if ((i <= 7) || (i > 0x78)) {
-						continue;
-					}
-					if (Chip_I2C_MasterRead(I2C0, i, ch, 1 + (i == 0x48)) > 0) {
-						switch(i) {
-							case	sdd1306.i2caddr:
-									sdd1306.devicePresent = true;
-									break;
-						}
-					}
-				}
-			}
-};  // class Setup {
-
-}  // namespace {
 
 class Effects {
 
@@ -3238,7 +3279,7 @@ static void advance_mode(uint32_t mode) {
 			if (settings.program_curr >= settings.program_count) {
 				settings.program_curr = 0;
 			}
-			//settings.save();
+			settings.save();
 			return true;
 		}
 		return false;
@@ -4434,14 +4475,16 @@ static void advance_mode(uint32_t mode) {
 	}
 };  // class Effects
 
+}  // namespace {
+
 extern "C" {
 	void SysTick_Handler(void)
 	{	
 		system_clock_ms++;
 #ifndef NO_SX1280
-		if ( (system_clock_ms % 1024) == 0) {
-			sx1280.SendBuffer();
-		}
+//		if ( (system_clock_ms % 1024) == 0) {
+//			sx1280.SendBuffer();
+//		}
 #endif  // #ifndef NO_SX1280
 	}
 
@@ -4479,16 +4522,23 @@ int main(void)
 
 	spi.push_frame(leds, 0, 0);
 
-//	settings.load();
-
+	if (sdd1306.DevicePresent()) {
+		sdd1306.Init(); 
+		sdd1306.Clear();
+		sdd1306.DisplayUID();
+	}
+	
 #ifndef NO_FLASH
 //	flash_storage.init();
 #endif  // #ifndef NO_FLASH
 
-	if (sdd1306.DevicePresent()) {
-		sdd1306.Init();
-		sdd1306.Clear();
-	}
+	delay(1000);
+	
+	settings.load();
+	
+	SX1280 sx1280;
+	
+	sx1280.Init(sdd1306, true);
 
 	// start 1ms timer
 	SysTick_Config(SystemCoreClock / 1000);
