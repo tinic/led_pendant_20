@@ -1190,6 +1190,16 @@ class SX1280 {
 				RF_TX_RUNNING,                                          //!< The radio is in transmission state
 				RF_CAD,                                                 //!< The radio is doing channel activity detection
 			};
+			
+			enum RadioCommandStatus
+			{
+				CMD_SUCCESS								= 0x01,
+				CMD_DATA_AVAILABLE						= 0x02,
+				CMD_TIMEOUT								= 0x03,
+				CMD_ERROR								= 0x04,
+				CMD_FAIL								= 0x05,
+				CMD_TX_DONE								= 0x06,
+			};
 
 			enum RadioOperatingModes
 			{
@@ -1868,7 +1878,7 @@ class SX1280 {
 				modulationParams.Params.LoRa.CodingRate      = LORA_CR_LI_4_5;
 				SetPacketType( modulationParams.PacketType );
 				SetModulationParams( &modulationParams );
-	
+
 				PacketParams PacketParams;
 				PacketParams.PacketType                 	 = PACKET_TYPE_LORA;
 				PacketParams.Params.LoRa.PreambleLength      = 0x0C;
@@ -1881,7 +1891,6 @@ class SX1280 {
 				SetRfFrequency( RF_FREQUENCY );
 				SetBufferBaseAddresses( 0x00, 0x00 );
 				SetTxParams( TX_OUTPUT_POWER, RADIO_RAMP_20_US );
-				
 				SetDioIrqParams( SX1280::IrqMask, SX1280::IrqMask, IRQ_RADIO_NONE, IRQ_RADIO_NONE );
 
 		    	SetRx( TickTime { RX_TIMEOUT_TICK_SIZE, RX_TIMEOUT_VALUE } );
@@ -4481,11 +4490,11 @@ extern "C" {
 	void SysTick_Handler(void)
 	{	
 		system_clock_ms++;
-#ifndef NO_SX1280
+
 //		if ( (system_clock_ms % 1024) == 0) {
 //			sx1280.SendBuffer();
 //		}
-#endif  // #ifndef NO_SX1280
+
 	}
 
 	void TIMER32_0_IRQHandler(void)
@@ -4494,6 +4503,11 @@ extern "C" {
 
 	void UART_IRQHandler(void)
 	{
+	}
+	
+	void FLEX_INT0_IRQHandler(void)
+	{
+		sx1280.OnDioIrq();
 	}
 }
 
