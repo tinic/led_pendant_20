@@ -868,6 +868,210 @@ private:
 	}
 };
 
+class BQ24295 {
+	public:
+			static const uint32_t i2caddr = 0x6B;
+	
+			BQ24295() {
+				devicePresent = false;
+			}
+			
+			void SetBoostVoltage (uint32_t voltageMV) {
+				uint8_t reg = getRegister(0x06);
+				if ((voltageMV >= 4550) && (voltageMV <= 5510)) {
+					uint32_t codedValue = voltageMV;
+					codedValue = (codedValue - 4550) / 64;
+					if ((voltageMV - 4550) % 64 != 0) {
+						codedValue++;
+					}
+					reg &= ~(0x0f << 4);
+					reg |= (uint8_t) ((codedValue & 0x0f) << 4);
+					setRegister (0x06, reg);
+				}
+			}
+			
+			uint32_t GetBoostVoltage () {
+				uint8_t reg = getRegister(0x06);
+				reg = (reg >> 4) & 0x0f;
+				return 4550 + ((uint32_t) reg) * 64;
+			}
+
+			void SetBoostUpperTemperatureLimit (uint32_t temperatureC) {
+				uint8_t reg = getRegister(0x06);
+				uint8_t codedValue = 0;
+				if (temperatureC < 60) {
+					codedValue = 0;
+				} else if (temperatureC < 65) {
+					codedValue = 1;
+				} else {
+					codedValue = 2;
+				}
+				reg &= ~(0x03 << 2);
+				reg |= (uint8_t) (codedValue << 2);
+				setRegister (0x06, reg);
+			}
+
+			uint32_t GetBoostUpperTemperatureLimit () {
+				uint8_t reg = getRegister(0x06);
+				if (((reg >> 2) & 0x03) != 0x03) {
+					switch ((reg >> 2) & 0x03) {
+						case 0:
+							return 55;
+						break;
+						case 1:
+							return 60;
+						break;
+						case 2:
+							return 65;
+						break;
+					}
+				}
+				return 0;
+			}
+
+			void SetInputCurrentLimit(uint32_t currentMA) {
+				uint8_t reg = 0;
+				if ((reg = getRegister(0x00)) != 0) {
+					// Input current limit is in bits 0 to 2, coded
+					// such that the smallest limit is applied for
+					// a range (e.g. 120 mA ends up as 100 mA rather
+					// than 150 mA)
+					if ((currentMA >= 100) && (currentMA <= 3000)) {
+						uint8_t codedValue = 0;
+						if (currentMA < 150) {
+							codedValue = 0;
+						} else if (currentMA < 500) {
+							codedValue = 1;
+						} else if (currentMA < 900) {
+							codedValue = 2;
+						} else if (currentMA < 1000) {
+							codedValue = 3;
+						} else if (currentMA < 1500) {
+							codedValue = 4;
+						} else if (currentMA < 2000) {
+							codedValue = 5;
+						} else if (currentMA < 3000) {
+							codedValue = 6;
+						} else {
+							codedValue = 7;
+						}                
+						reg &= ~(0x07 << 0);
+						reg |= codedValue;
+						setRegister (0x00, reg);
+					}
+				}
+			}
+			
+			uint32_t GetInputCurrentLimit() {
+				uint8_t reg = getRegister(0x00);
+				switch (reg & 0x07) {
+					case 0:
+						return 100;
+					break;
+					case 1:
+						return 150;
+					break;
+					case 2:
+						return 500;
+					break;
+					case 3:
+						return 900;
+					break;
+					case 4:
+						return 1000;
+					break;
+					case 5:
+						return 1500;
+					break;
+					case 6:
+						return 2000;
+					break;
+					case 7:
+						return 3000;
+					break;
+				}
+				return 0;
+			}
+
+			void EnableInputLimits() {
+				setRegisterBits(0x00, (1 << 7));
+			}
+			
+			void DisableInputLimits() {
+				clearRegisterBits(0x00, (1 << 7));
+			}
+
+			void SetChipThermalRegulationThreshold(uint32_t temperatureC) {
+				uint8_t reg = getRegister(0x06);
+				uint8_t codedValue = 0;
+				if (temperatureC < 80) {
+					codedValue = 0;
+				} else if (temperatureC < 100) {
+					codedValue = 1;
+				} else if (temperatureC < 120) {
+					codedValue = 2;
+				} else {
+					codedValue = 3;
+				}
+				reg &= ~0x03;
+				reg |= (uint8_t) codedValue;
+				setRegister (0x06, reg);
+			}
+			
+			uint32_t GetChipThermalRegulationThreshold() {
+				uint8_t reg = getRegister(0x06);
+				switch (reg & 0x03) {
+					case 0:
+						return 60;
+					break;
+					case 1:
+						return 80;
+					break;
+					case 2:
+						return 100;
+					break;
+					case 3:
+						return 120;
+					break;
+				}
+				return 0;
+			}
+			
+			bool DevicePresent() const { return devicePresent; }
+
+	private:
+
+			uint8_t getRegister(uint8_t address) {
+				uint8_t value = 0;
+				Chip_I2C_MasterSend(I2C0, i2caddr, &address, 1);
+				Chip_I2C_MasterRead(I2C0, i2caddr, &value, 1);
+				return value;
+			}
+
+			void setRegister(uint8_t address, uint8_t value) {
+				uint8_t set[2];
+				set[0] = address;
+				set[1] = value;
+				Chip_I2C_MasterSend(I2C0, i2caddr, &set[0], 2);
+			}
+
+			void setRegisterBits(uint8_t address, uint8_t mask) {
+				uint8_t value = getRegister(address);
+				value |= mask;
+				setRegister(address, value);
+			}
+
+			void clearRegisterBits(uint8_t address, uint8_t mask) {
+				uint8_t value = getRegister(address);
+				value &= ~mask;
+				setRegister(address, value);
+			}
+			
+			friend class Setup;
+
+			bool devicePresent;
+};
+
 
 class SDD1306 {
 
@@ -1039,10 +1243,10 @@ class SDD1306 {
 class Setup {
 
 	public:
-			Setup(SDD1306 &sdd1306) {
+			Setup(SDD1306 &sdd1306, BQ24295 &bq24295) {
 				InitGPIO();
 				InitPININT();
-				InitI2C(sdd1306);
+				InitI2C(sdd1306, bq24295);
 			}
 
 	private:
@@ -1054,7 +1258,7 @@ class Setup {
 				Chip_PININT_Init(LPC_PININT);
 			}
 
-			void InitI2C(SDD1306 &sdd1306) {
+			void InitI2C(SDD1306 &sdd1306, BQ24295 &bq24295) {
 				Chip_SYSCTL_PeriphReset(RESET_I2C0);
 
 				Chip_IOCON_PinMuxSet(LPC_IOCON, 0, 4, IOCON_FUNC1 | I2C_FASTPLUS_BIT);
@@ -1066,10 +1270,10 @@ class Setup {
 				NVIC_DisableIRQ(I2C0_IRQn);
 				Chip_I2C_SetMasterEventHandler(I2C0, Chip_I2C_EventHandlerPolling);
 
-				ProbeI2CSlaves(sdd1306);
+				ProbeI2CSlaves(sdd1306, bq24295);
 			}
 
-			void ProbeI2CSlaves(SDD1306 &sdd1306) {
+			void ProbeI2CSlaves(SDD1306 &sdd1306, BQ24295 &bq24295) {
 				int i;
 				uint8_t ch[2];
 
@@ -1083,6 +1287,9 @@ class Setup {
 						switch(i) {
 							case	sdd1306.i2caddr:
 									sdd1306.devicePresent = true;
+									break;
+							case	bq24295.i2caddr:
+									bq24295.devicePresent = true;
 									break;
 						}
 					}
@@ -3239,6 +3446,98 @@ public:
 		frame_counter = 0;
 	}	
 
+	void RunForever() {
+		while (1) {
+			switch(settings.program_curr) {
+				case	0:
+						color_ring();
+						break;
+				case	1:	
+						fade_ring();
+						break;
+				case	2:
+						rgb_walker();
+						break;
+				case	3:
+						rgb_glow();
+						break;
+				case	4:
+						rgb_tracer();
+						break;
+				case	5: 
+						ring_tracer();
+						break;
+				case	6:
+						light_tracer();
+						break;
+				case	7: 
+						ring_bar_rotate();
+						break;
+				case	8: 
+						ring_bar_move();
+						break;
+				case	9:
+						sparkle();
+						break;
+				case	10:
+						lightning();
+						break;
+				case	11:
+						lightning_crazy();
+						break;
+				case 	12:
+						rgb_vertical_wall();
+						break;
+				case 	13:
+						rgb_horizontal_wall();
+						break;
+				case	14:
+						shine_vertical();
+						break;
+				case	15:
+						shine_horizontal();
+						break;	
+				case 	16:
+						heartbeat();
+						break;
+				case 	17:
+						brilliance();
+						break;
+				case    18:
+						tingling();
+						break;
+				case    19:
+						twinkle();
+						break;
+				case	20:
+						simple_change_ring();
+						break;
+				case	21:
+						simple_change_bird();
+						break;
+				case	22:
+						simple_random();
+						break;
+				case	23:
+						diagonal_wipe();
+						break;
+				case	24:
+						shimmer_outside();
+						break;
+				case	25:
+						shimmer_inside();
+						break;
+				case	26:
+						red();
+						break;
+				default:
+						color_ring();
+						break;
+			}
+		}
+	}
+
+private:
 #if 0
 static void advance_mode(uint32_t mode) {
 	switch(mode) {
@@ -4516,12 +4815,19 @@ int main(void)
 {
 	SystemCoreClockUpdate();
 
-	Random random(0xCAFFE);
-
 	SDD1306 sdd1306;
+	BQ24295 bq24295;
 
-	Setup setup(sdd1306);
+	Setup setup(sdd1306, bq24295);
 
+	if (bq24295.DevicePresent()) {
+		bq24295.SetBoostUpperTemperatureLimit(60);
+		bq24295.SetInputCurrentLimit(900);
+		bq24295.EnableInputLimits();
+		bq24295.SetChipThermalRegulationThreshold(60);
+		bq24295.SetBoostVoltage(5000);
+	}
+	
 	EEPROM settings;
 
 	SPI spi;
@@ -4541,13 +4847,13 @@ int main(void)
 		sdd1306.Clear();
 		sdd1306.DisplayUID();
 	}
-	
+
+	Random random(0xCAFFE);
+
 #ifndef NO_FLASH
 //	flash_storage.init();
 #endif  // #ifndef NO_FLASH
 
-	delay(1000);
-	
 	settings.load();
 	
 	SX1280 sx1280;
@@ -4558,95 +4864,8 @@ int main(void)
 	SysTick_Config(SystemCoreClock / 1000);
 
 	Effects effects(settings, random, leds, spi, sdd1306);
-	
-	while (1) {
-		switch(settings.program_curr) {
-			case	0:
-					effects.color_ring();
-					break;
-			case	1:	
-					effects.fade_ring();
-					break;
-			case	2:
-					effects.rgb_walker();
-					break;
-			case	3:
-					effects.rgb_glow();
-					break;
-			case	4:
-					effects.rgb_tracer();
-					break;
-			case	5: 
-					effects.ring_tracer();
-					break;
-			case	6:
-					effects.light_tracer();
-					break;
-			case	7: 
-					effects.ring_bar_rotate();
-					break;
-			case	8: 
-					effects.ring_bar_move();
-					break;
-			case	9:
-					effects.sparkle();
-					break;
-			case	10:
-					effects.lightning();
-					break;
-			case	11:
-					effects.lightning_crazy();
-					break;
-			case 	12:
-					effects.rgb_vertical_wall();
-					break;
-			case 	13:
-					effects.rgb_horizontal_wall();
-					break;
-			case	14:
-					effects.shine_vertical();
-					break;
-			case	15:
-					effects.shine_horizontal();
-					break;	
-			case 	16:
-					effects.heartbeat();
-					break;
-			case 	17:
-					effects.brilliance();
-					break;
-			case    18:
-					effects.tingling();
-					break;
-			case    19:
-					effects.twinkle();
-					break;
-			case	20:
-					effects.simple_change_ring();
-					break;
-			case	21:
-					effects.simple_change_bird();
-					break;
-			case	22:
-					effects.simple_random();
-					break;
-			case	23:
-					effects.diagonal_wipe();
-					break;
-			case	24:
-					effects.shimmer_outside();
-					break;
-			case	25:
-					effects.shimmer_inside();
-					break;
-			case	26:
-					effects.red();
-					break;
-			default:
-					effects.color_ring();
-					break;
-		}
-    }
 
+	effects.RunForever();
+	
 	return 0;
 }
