@@ -311,25 +311,6 @@ static const uint8_t font_data[] = {
 	0x40, 0x0f, 0x0f, 0x0f, 0x0f, 0xf0, 0xf0, 0xf0, 0xf0, 
 };
 
-static const uint8_t gamma_curve[256] = {
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 
-	0x02, 0x02, 0x03, 0x03, 0x03, 0x03, 0x03, 0x04, 0x04, 0x04, 0x04, 0x05, 0x05, 0x05, 0x05, 0x06, 
-	0x06, 0x06, 0x07, 0x07, 0x07, 0x08, 0x08, 0x08, 0x09, 0x09, 0x09, 0x0a, 0x0a, 0x0a, 0x0b, 0x0b, 
-	0x0c, 0x0c, 0x0d, 0x0d, 0x0d, 0x0e, 0x0e, 0x0f, 0x0f, 0x10, 0x10, 0x11, 0x11, 0x12, 0x12, 0x13, 
-	0x13, 0x14, 0x15, 0x15, 0x16, 0x16, 0x17, 0x17, 0x18, 0x19, 0x19, 0x1a, 0x1b, 0x1b, 0x1c, 0x1d, 
-	0x1d, 0x1e, 0x1f, 0x1f, 0x20, 0x21, 0x21, 0x22, 0x23, 0x24, 0x24, 0x25, 0x26, 0x27, 0x28, 0x28, 
-	0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2d, 0x2e, 0x2f, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 
-	0x37, 0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 
-	0x48, 0x49, 0x4a, 0x4b, 0x4d, 0x4e, 0x4f, 0x50, 0x51, 0x52, 0x54, 0x55, 0x56, 0x57, 0x58, 0x5a, 
-	0x5b, 0x5c, 0x5d, 0x5f, 0x60, 0x61, 0x63, 0x64, 0x65, 0x67, 0x68, 0x69, 0x6b, 0x6c, 0x6d, 0x6f, 
-	0x70, 0x72, 0x73, 0x75, 0x76, 0x77, 0x79, 0x7a, 0x7c, 0x7d, 0x7f, 0x80, 0x82, 0x83, 0x85, 0x87, 
-	0x88, 0x8a, 0x8b, 0x8d, 0x8e, 0x90, 0x92, 0x93, 0x95, 0x97, 0x98, 0x9a, 0x9c, 0x9d, 0x9f, 0xa1, 
-	0xa2, 0xa4, 0xa6, 0xa8, 0xa9, 0xab, 0xad, 0xaf, 0xb0, 0xb2, 0xb4, 0xb6, 0xb8, 0xba, 0xbb, 0xbd, 
-	0xbf, 0xc1, 0xc3, 0xc5, 0xc7, 0xc9, 0xcb, 0xcd, 0xcf, 0xd1, 0xd3, 0xd5, 0xd7, 0xd9, 0xdb, 0xdd, 
-	0xdf, 0xe1, 0xe3, 0xe5, 0xe7, 0xe9, 0xeb, 0xed, 0xef, 0xf1, 0xf4, 0xf6, 0xf8, 0xfa, 0xfc, 0xff
-};
-
 struct rgba {
 	
 	rgba() { rgbp = 0; }
@@ -348,8 +329,6 @@ struct rgba {
 				(uint32_t(_a)<<24); 
 	}
 	
-	rgba gamma() { return rgba(gammar(), gammag(), gammab());  }
-
 	operator uint32_t() const { return rgbp; }
 	
 	rgba operator/(const uint32_t div) const {
@@ -367,24 +346,6 @@ struct rgba {
 	uint32_t ru() const { return uint32_t((rgbp>>16)&0xFF); };
 	uint32_t gu() const { return uint32_t((rgbp>> 8)&0xFF); };
 	uint32_t bu() const { return uint32_t((rgbp>> 0)&0xFF); };
-
-#if 1	
-	uint8_t gammar() const { return gamma_curve[(rgbp>>16)&0xFF]; }
-	uint8_t gammag() const { return gamma_curve[(rgbp>> 8)&0xFF]; }
-	uint8_t gammab() const { return gamma_curve[(rgbp>> 0)&0xFF]; }
-
-	uint32_t gammaru() const { return uint32_t(gamma_curve[(rgbp>>16)&0xFF]); }
-	uint32_t gammagu() const { return uint32_t(gamma_curve[(rgbp>> 8)&0xFF]); }
-	uint32_t gammabu() const { return uint32_t(gamma_curve[(rgbp>> 0)&0xFF]); }
-#else  //#if 0	
-	uint8_t gammar() const { return (rgbp>>16)&0xFF; }
-	uint8_t gammag() const { return (rgbp>> 8)&0xFF; }
-	uint8_t gammab() const { return (rgbp>> 0)&0xFF; }
-
-	uint32_t gammaru() const { return uint32_t((rgbp>>16)&0xFF); }
-	uint32_t gammagu() const { return uint32_t((rgbp>> 8)&0xFF); }
-	uint32_t gammabu() const { return uint32_t((rgbp>> 0)&0xFF); }
-#endif  // #if 0	
 
 	static rgba hsvToRgb(uint16_t h, uint8_t s, uint8_t v) {
 		uint8_t f = (h % 60) * 255 / 60;
@@ -809,7 +770,7 @@ public:
 		Chip_SSP_Enable(LPC_SSP1);
 	}
 
-	void push_frame(LEDs &leds, int32_t d, uint32_t brightness = 0x04)  {
+	void push_frame(LEDs &leds, int32_t d, uint32_t brightness = 0x01)  {
 	
 		// Set to GPIO, shared with flash chip
 		Chip_IOCON_PinMuxSet(LPC_IOCON, (ALT_SCK0_PIN>>8), (ALT_SCK0_PIN&0xFF), IOCON_FUNC0);
@@ -1182,7 +1143,7 @@ class SDD1306 {
 					
 					0xDA, 0x12, 	// Set Pins configuration
 				
-					0x81, 0xFF,		// Set Contrast (0x00-0xFF)
+					0x81, 0x00,		// Set Contrast (0x00-0xFF)
 					
 					0xD9, 0xF1,		// Set Pre-Charge period
 
@@ -3619,11 +3580,11 @@ static void advance_mode(uint32_t mode) {
 	void color_ring() {
 		for (; ;) {
 			for (uint32_t d = 0; d < 8; d++) {
-				leds.set_ring(d, settings.ring_color.gamma());
+				leds.set_ring(d, settings.ring_color);
 			}
 
 			for (uint32_t d = 0; d < 4; d++) {
-				leds.set_bird(d, settings.bird_color.gamma());
+				leds.set_bird(d, settings.bird_color);
 			}
 
 			if (post_frame(  5)) {
@@ -3637,21 +3598,21 @@ static void advance_mode(uint32_t mode) {
 			rgba color;
 			const rgba &rc = settings.ring_color;
 			color = rgba(max(rc.r()-0x20UL,0UL), max(rc.g()-0x20UL,0UL), max(rc.b()-0x20UL,0UL));
-			leds.set_ring(0, color.gamma());
+			leds.set_ring(0, color);
 			color = rgba(max(rc.r()-0x1AUL,0UL), max(rc.g()-0x1AUL,0UL), max(rc.b()-0x1AUL,0UL));
-			leds.set_ring(1, color.gamma());
-			leds.set_ring(7, color.gamma());
+			leds.set_ring(1, color);
+			leds.set_ring(7, color);
 			color = rgba(max(rc.r()-0x18UL,0UL), max(rc.g()-0x18UL,0UL), max(rc.b()-0x18UL,0UL));
-			leds.set_ring(2, color.gamma());
-			leds.set_ring(6, color.gamma());
+			leds.set_ring(2, color);
+			leds.set_ring(6, color);
 			color = rgba(max(rc.r()-0x10UL,0UL), max(rc.g()-0x10UL,0UL), max(rc.b()-0x10UL,0UL));
-			leds.set_ring(3, color.gamma());
-			leds.set_ring(5, color.gamma());
+			leds.set_ring(3, color);
+			leds.set_ring(5, color);
 			color = rgba(max(rc.r()-0x00UL,0UL), max(rc.g()-0x00UL,0UL), max(rc.b()-0x00UL,0UL));
-			leds.set_ring(4, color.gamma());
+			leds.set_ring(4, color);
 
 			for (uint32_t d = 0; d < 4; d++) {
-				leds.set_bird(d, settings.bird_color.gamma());
+				leds.set_bird(d, settings.bird_color);
 			}
 
 			if (post_frame(   5)) {
@@ -3674,13 +3635,13 @@ static void advance_mode(uint32_t mode) {
 
 			rgba color = rgba::hsvToRgb(rgb_walk/3, 255, 255);
 			for (uint32_t d = 0; d < 8; d++) {
-				leds.set_ring(d, gamma_curve[(work_buffer[(((0x80/8)*d) + walk)&0x7F] * ((color.r())&0xFF)) >> 8],
-						 	     gamma_curve[(work_buffer[(((0x80/8)*d) + walk)&0x7F] * ((color.g())&0xFF)) >> 8],
-						 		 gamma_curve[(work_buffer[(((0x80/8)*d) + walk)&0x7F] * ((color.b())&0xFF)) >> 8]);
+				leds.set_ring(d, (work_buffer[(((0x80/8)*d) + walk)&0x7F] * ((color.r())&0xFF)) >> 8,
+						 	     (work_buffer[(((0x80/8)*d) + walk)&0x7F] * ((color.g())&0xFF)) >> 8,
+						 		 (work_buffer[(((0x80/8)*d) + walk)&0x7F] * ((color.b())&0xFF)) >> 8);
 			}
 
 			for (uint32_t d = 0; d < 4; d++) {
-				leds.set_bird(d, settings.bird_color.gamma());
+				leds.set_bird(d, settings.bird_color);
 			}
 
 			walk ++;
@@ -3703,7 +3664,7 @@ static void advance_mode(uint32_t mode) {
 
 			rgba color = rgba::hsvToRgb(rgb_walk, 255, 255);
 			for (uint32_t d = 0; d < 8; d++) {
-				leds.set_ring_synced(d, (color / 4UL).gamma());
+				leds.set_ring_synced(d, (color / 4UL));
 			}
 			
 			rgb_walk ++;
@@ -3712,7 +3673,7 @@ static void advance_mode(uint32_t mode) {
 			}
 
 			for (uint32_t d = 0; d < 4; d++) {
-				leds.set_bird(d, settings.bird_color.gamma());
+				leds.set_bird(d, settings.bird_color);
 			}
 
 			if (post_frame(   50)) {
@@ -3733,7 +3694,7 @@ static void advance_mode(uint32_t mode) {
 			}
 
 			rgba color = rgba::hsvToRgb(rgb_walk/3, 255, 255);
-			leds.set_ring_synced(walk&0x7, (color / 4UL).gamma());
+			leds.set_ring_synced(walk&0x7, (color / 4UL));
 
 			walk += switch_dir;
 
@@ -3743,7 +3704,7 @@ static void advance_mode(uint32_t mode) {
 			}
 
 			for (uint32_t d = 0; d < 4; d++) {
-				leds.set_bird(d, settings.bird_color.gamma());
+				leds.set_bird(d, settings.bird_color);
 			}
 
 			switch_counter ++;
@@ -3777,13 +3738,13 @@ static void advance_mode(uint32_t mode) {
 		for (;;) {
 
 			for (uint32_t d = 0; d < 8; d++) {
-				leds.set_ring((walk+d)&0x7, gradient[d].gamma());
+				leds.set_ring((walk+d)&0x7, gradient[d]);
 			}
 
 			walk--;
 
 			for (uint32_t d = 0; d < 4; d++) {
-				leds.set_bird(d, settings.bird_color.gamma());
+				leds.set_bird(d, settings.bird_color);
 			}
 
 			if (post_frame(   100)) {
@@ -3803,14 +3764,14 @@ static void advance_mode(uint32_t mode) {
 				leds.set_ring(d,0,0,0);
 			}
 
-			leds.set_ring_synced((walk+0)&0x7, settings.ring_color.gamma());
-			leds.set_ring_synced((walk+1)&0x7, settings.ring_color.gamma());
-			leds.set_ring_synced((walk+2)&0x7, settings.ring_color.gamma());
+			leds.set_ring_synced((walk+0)&0x7, settings.ring_color);
+			leds.set_ring_synced((walk+1)&0x7, settings.ring_color);
+			leds.set_ring_synced((walk+2)&0x7, settings.ring_color);
 
 			walk += switch_dir;
 
 			for (uint32_t d = 0; d < 4; d++) {
-				leds.set_bird(d, settings.bird_color.gamma());
+				leds.set_bird(d, settings.bird_color);
 			}
 
 			switch_counter ++;
@@ -3838,8 +3799,8 @@ static void advance_mode(uint32_t mode) {
 				leds.set_ring(d,0,0,0);
 			}
 
-			leds.set_ring_synced((walk+0)&0x7, settings.ring_color.gamma());
-			leds.set_ring_synced((walk+4)&0x7, settings.ring_color.gamma());
+			leds.set_ring_synced((walk+0)&0x7, settings.ring_color);
+			leds.set_ring_synced((walk+4)&0x7, settings.ring_color);
 
 			walk += switch_dir;
 
@@ -3849,7 +3810,7 @@ static void advance_mode(uint32_t mode) {
 			}
 
 			for (uint32_t d = 0; d < 4; d++) {
-				leds.set_bird(d, settings.bird_color.gamma());
+				leds.set_bird(d, settings.bird_color);
 			}
 
 			switch_counter ++;
@@ -3917,10 +3878,10 @@ static void advance_mode(uint32_t mode) {
 			}
 
 			if (indecies0[(walk)%15] >=0 ) {
-				leds.set_ring_synced(indecies0[(walk)%15], settings.ring_color.gamma());	
+				leds.set_ring_synced(indecies0[(walk)%15], settings.ring_color);	
 			}
 			if (indecies1[(walk)%15] >=0 ) {
-				leds.set_ring_synced(indecies1[(walk)%15], settings.ring_color.gamma());
+				leds.set_ring_synced(indecies1[(walk)%15], settings.ring_color);
 			}
 
 			walk += switch_dir;
@@ -3931,7 +3892,7 @@ static void advance_mode(uint32_t mode) {
 			}
 
 			for (uint32_t d = 0; d < 4; d++) {
-				leds.set_bird(d, settings.bird_color.gamma());
+				leds.set_bird(d, settings.bird_color);
 			}
 
 			switch_counter ++;
@@ -3954,18 +3915,18 @@ static void advance_mode(uint32_t mode) {
 
 			rgba color;
 			color = rgba::hsvToRgb(((rgb_walk+  0)/3)%360, 255, 255);
-			leds.set_ring_synced(0, (color / 4UL).gamma());
+			leds.set_ring_synced(0, (color / 4UL));
 			color = rgba::hsvToRgb(((rgb_walk+ 30)/3)%360, 255, 255);
-			leds.set_ring_synced(1, (color / 4UL).gamma());
-			leds.set_ring_synced(7, (color / 4UL).gamma());
+			leds.set_ring_synced(1, (color / 4UL));
+			leds.set_ring_synced(7, (color / 4UL));
 			color = rgba::hsvToRgb(((rgb_walk+120)/3)%360, 255, 255);
-			leds.set_ring_synced(2, (color / 4UL).gamma());
-			leds.set_ring_synced(6, (color / 4UL).gamma());
+			leds.set_ring_synced(2, (color / 4UL));
+			leds.set_ring_synced(6, (color / 4UL));
 			color = rgba::hsvToRgb(((rgb_walk+210)/3)%360, 255, 255);
-			leds.set_ring_synced(3, (color / 4UL).gamma());
-			leds.set_ring_synced(5, (color / 4UL).gamma());
+			leds.set_ring_synced(3, (color / 4UL));
+			leds.set_ring_synced(5, (color / 4UL));
 			color = rgba::hsvToRgb(((rgb_walk+230)/3)%360, 255, 255);
-			leds.set_ring_synced(4, (color / 4UL).gamma());
+			leds.set_ring_synced(4, (color / 4UL));
 
 			rgb_walk += 7;
 			if (rgb_walk >= 360*3) {
@@ -3973,7 +3934,7 @@ static void advance_mode(uint32_t mode) {
 			}
 
 			for (uint32_t d = 0; d < 4; d++) {
-				leds.set_bird(d, settings.bird_color.gamma());
+				leds.set_bird(d, settings.bird_color);
 			}
 
 			if (post_frame(   40)) {
@@ -4001,18 +3962,18 @@ static void advance_mode(uint32_t mode) {
 		for (;;) {
 			rgba color;
 			color = gradient[((rgb_walk+ 0))%256];
-			leds.set_ring_synced(0, color.gamma());
+			leds.set_ring_synced(0, color);
 			color = gradient[((rgb_walk+10))%256];
-			leds.set_ring_synced(1, color.gamma());
-			leds.set_ring_synced(7, color.gamma());
+			leds.set_ring_synced(1, color);
+			leds.set_ring_synced(7, color);
 			color = gradient[((rgb_walk+40))%256];
-			leds.set_ring_synced(2, color.gamma());
-			leds.set_ring_synced(6, color.gamma());
+			leds.set_ring_synced(2, color);
+			leds.set_ring_synced(6, color);
 			color = gradient[((rgb_walk+70))%256];
-			leds.set_ring_synced(3, color.gamma());
-			leds.set_ring_synced(5, color.gamma());
+			leds.set_ring_synced(3, color);
+			leds.set_ring_synced(5, color);
 			color = gradient[((rgb_walk+80))%256];
-			leds.set_ring_synced(4, color.gamma());
+			leds.set_ring_synced(4, color);
 
 			rgb_walk += 7;
 			if (rgb_walk >= 256) {
@@ -4020,7 +3981,7 @@ static void advance_mode(uint32_t mode) {
 			}
 
 			for (uint32_t d = 0; d < 4; d++) {
-				leds.set_bird(d, settings.bird_color.gamma());
+				leds.set_bird(d, settings.bird_color);
 			}
 
 			if (post_frame(   80)) {
@@ -4050,18 +4011,18 @@ static void advance_mode(uint32_t mode) {
 		for (;;) {
 			rgba color;
 			color = gradient[((rgb_walk+ 0))%256];
-			leds.set_ring_synced(6, color.gamma());
+			leds.set_ring_synced(6, color);
 			color = gradient[((rgb_walk+10))%256];
-			leds.set_ring_synced(7, color.gamma());
-			leds.set_ring_synced(5, color.gamma());
+			leds.set_ring_synced(7, color);
+			leds.set_ring_synced(5, color);
 			color = gradient[((rgb_walk+40))%256];
-			leds.set_ring_synced(0, color.gamma());
-			leds.set_ring_synced(4, color.gamma());
+			leds.set_ring_synced(0, color);
+			leds.set_ring_synced(4, color);
 			color = gradient[((rgb_walk+70))%256];
-			leds.set_ring_synced(1, color.gamma());
-			leds.set_ring_synced(3, color.gamma());
+			leds.set_ring_synced(1, color);
+			leds.set_ring_synced(3, color);
 			color = gradient[((rgb_walk+80))%256];
-			leds.set_ring_synced(2, color.gamma());
+			leds.set_ring_synced(2, color);
 
 			rgb_walk += 7*switch_dir;
 			if (rgb_walk >= 256) {
@@ -4074,7 +4035,7 @@ static void advance_mode(uint32_t mode) {
 			}
 
 			for (uint32_t d = 0; d < 4; d++) {
-				leds.set_bird(d, settings.bird_color.gamma());
+				leds.set_bird(d, settings.bird_color);
 			}
 
 			if (post_frame(   80)) {
@@ -4089,18 +4050,18 @@ static void advance_mode(uint32_t mode) {
 
 			rgba color;
 			color = rgba::hsvToRgb(((rgb_walk+  0)/3)%360, 255, 255);
-			leds.set_ring_synced(6, (color / 4UL).gamma());
+			leds.set_ring_synced(6, (color / 4UL));
 			color = rgba::hsvToRgb(((rgb_walk+ 30)/3)%360, 255, 255);
-			leds.set_ring_synced(7, (color / 4UL).gamma());
-			leds.set_ring_synced(5, (color / 4UL).gamma());
+			leds.set_ring_synced(7, (color / 4UL));
+			leds.set_ring_synced(5, (color / 4UL));
 			color = rgba::hsvToRgb(((rgb_walk+120)/3)%360, 255, 255);
-			leds.set_ring_synced(0, (color / 4UL).gamma());
-			leds.set_ring_synced(4, (color / 4UL).gamma());
+			leds.set_ring_synced(0, (color / 4UL));
+			leds.set_ring_synced(4, (color / 4UL));
 			color = rgba::hsvToRgb(((rgb_walk+210)/3)%360, 255, 255);
-			leds.set_ring_synced(1, (color / 4UL).gamma());
-			leds.set_ring_synced(3, (color / 4UL).gamma());
+			leds.set_ring_synced(1, (color / 4UL));
+			leds.set_ring_synced(3, (color / 4UL));
 			color = rgba::hsvToRgb(((rgb_walk+230)/3)%360, 255, 255);
-			leds.set_ring_synced(2, (color / 4UL).gamma());
+			leds.set_ring_synced(2, (color / 4UL));
 
 			rgb_walk += 7;
 			if (rgb_walk >= 360*3) {
@@ -4108,7 +4069,7 @@ static void advance_mode(uint32_t mode) {
 			}
 
 			for (uint32_t d = 0; d < 4; d++) {
-				leds.set_bird(d, settings.bird_color.gamma());
+				leds.set_bird(d, settings.bird_color);
 			}
 
 			if (post_frame(   40)) {
@@ -4128,7 +4089,7 @@ static void advance_mode(uint32_t mode) {
 			leds.set_ring_all(index,0x40,0x40,0x40);
 
 			for (uint32_t d = 0; d < 4; d++) {
-				leds.set_bird(d, settings.bird_color.gamma());
+				leds.set_bird(d, settings.bird_color);
 			}
 
 			if (post_frame(   10)) {
@@ -4148,7 +4109,7 @@ static void advance_mode(uint32_t mode) {
 			leds.set_ring_all(index,random.get(0x00,0x10),random.get(0x00,0x10),random.get(0,0x10));
 
 			for (uint32_t d = 0; d < 4; d++) {
-				leds.set_bird(d, settings.bird_color.gamma());
+				leds.set_bird(d, settings.bird_color);
 			}
 
 			if (post_frame(   50)) {
@@ -4168,7 +4129,7 @@ static void advance_mode(uint32_t mode) {
 			leds.set_ring_all(index,0x40,0x40,0x40);
 
 			for (uint32_t d = 0; d < 4; d++) {
-				leds.set_bird(d, settings.bird_color.gamma());
+				leds.set_bird(d, settings.bird_color);
 			}
 
 			if (post_frame(   10)) {
@@ -4182,13 +4143,13 @@ static void advance_mode(uint32_t mode) {
 		int32_t switch_dir = 1;
 		for (; ;) {
 			for (uint32_t d = 0; d < 8; d++) {
-				leds.set_ring(d, settings.ring_color.gamma());
+				leds.set_ring(d, settings.ring_color);
 			}
 
 			for (uint32_t d = 0; d < 4; d++) {
-				leds.set_bird(d, gamma_curve[((settings.bird_color.r())*rgb_walk)/256],
-						 		 gamma_curve[((settings.bird_color.g())*rgb_walk)/256],
-						 		 gamma_curve[((settings.bird_color.b())*rgb_walk)/256]);
+				leds.set_bird(d, ((settings.bird_color.r())*rgb_walk)/256,
+						 		 ((settings.bird_color.g())*rgb_walk)/256,
+						 		 ((settings.bird_color.b())*rgb_walk)/256);
 			}
 
 			rgb_walk += switch_dir;
@@ -4241,12 +4202,12 @@ static void advance_mode(uint32_t mode) {
 
 
 			for (uint32_t d = 0; d < 8; d++) {
-				leds.set_ring(d, settings.ring_color.gamma());
+				leds.set_ring(d, settings.ring_color);
 			}
 
 			for (uint32_t d = 0; d < 4; d++) {
 				rgba color = gradient[((rgb_walk+ 0))%256];
-				leds.set_bird(d, color.gamma());
+				leds.set_bird(d, color);
 			}
 
 			rgb_walk += switch_dir;
@@ -4282,11 +4243,11 @@ static void advance_mode(uint32_t mode) {
 		for (; ;) {
 
 			for (uint32_t d = 0; d < 8; d++) {
-				leds.set_ring(d, settings.ring_color.gamma());
+				leds.set_ring(d, settings.ring_color);
 			}
 
 			for (uint32_t d = 0; d < 4; d++) {
-				leds.set_bird(d, settings.bird_color.gamma());
+				leds.set_bird(d, settings.bird_color);
 			}
 
 			for (int32_t c = 0 ; c < NUM_TINGLES; c++) {
@@ -4334,7 +4295,7 @@ static void advance_mode(uint32_t mode) {
 						g = max(g,0UL);
 						b = max(b,0UL);					
 					}
-					leds.set_ring_all(tingles[c].index, gamma_curve[r], gamma_curve[g], gamma_curve[b]);
+					leds.set_ring_all(tingles[c].index, r, g, b);
 					tingles[c].progress++;
 				}
 			}
@@ -4361,11 +4322,11 @@ static void advance_mode(uint32_t mode) {
 		for (; ;) {
 
 			for (uint32_t d = 0; d < 8; d++) {
-				leds.set_ring(d, settings.ring_color.gamma());
+				leds.set_ring(d, settings.ring_color);
 			}
 
 			for (uint32_t d = 0; d < 4; d++) {
-				leds.set_bird(d, settings.bird_color.gamma());
+				leds.set_bird(d, settings.bird_color);
 			}
 
 			for (int32_t c = 0 ; c < NUM_TWINKLE; c++) {
@@ -4404,7 +4365,7 @@ static void advance_mode(uint32_t mode) {
 					r = max(settings.ring_color.ru(),progress*16);
 					g = max(settings.ring_color.gu(),progress*16);
 					b = max(settings.ring_color.bu(),progress*16);					
-					leds.set_ring_all(tingles[c].index, gamma_curve[r],  gamma_curve[g], gamma_curve[b]);
+					leds.set_ring_all(tingles[c].index, r,  g, b);
 					tingles[c].progress++;
 				}
 			}
@@ -4454,13 +4415,11 @@ static void advance_mode(uint32_t mode) {
 			}
 
 			for (uint32_t d = 0; d < 8; d++) {
-				leds.set_ring(d, gamma_curve[r],
-						 		 gamma_curve[g],
-						 		 gamma_curve[b]);
+				leds.set_ring(d, r, g, b);
 			}
 
 			for (uint32_t d = 0; d < 4; d++) {
-				leds.set_bird(d, settings.bird_color.gamma());
+				leds.set_bird(d, settings.bird_color);
 			}
 
 			if (post_frame(   15)) {
@@ -4508,13 +4467,13 @@ static void advance_mode(uint32_t mode) {
 			}
 
 			for (uint32_t d = 0; d < 8; d++) {
-				leds.set_ring(d, settings.ring_color.gamma());
+				leds.set_ring(d, settings.ring_color);
 			}
 
 			for (uint32_t d = 0; d < 4; d++) {
-				leds.set_bird(d, gamma_curve[r],
-						 		 gamma_curve[g],
-						 		 gamma_curve[b]);
+				leds.set_bird(d, r,
+						 		 g,
+						 		 b);
 			}
 
 			if (post_frame(   15)) {
@@ -4536,11 +4495,11 @@ static void advance_mode(uint32_t mode) {
 			colors[index] = rgba(random.get(0x00,0x40),random.get(0x00,0x40),random.get(0x00,0x40));
 
 			for (uint32_t d = 0; d < 16; d++) {
-				leds.set_ring_all(d, colors[d].gamma());
+				leds.set_ring_all(d, colors[d]);
 			}
 
 			for (uint32_t d = 0; d < 4; d++) {
-				leds.set_bird(d, settings.bird_color.gamma());
+				leds.set_bird(d, settings.bird_color);
 			}
 
 			if (post_frame(   20)) {
@@ -4557,11 +4516,11 @@ static void advance_mode(uint32_t mode) {
 
 		for (; ;) {
 			for (uint32_t d = 0; d < 8; d++) {
-				leds.set_ring(d, settings.ring_color.gamma());
+				leds.set_ring(d, settings.ring_color);
 			}
 
 			for (uint32_t d = 0; d < 4; d++) {
-				leds.set_bird(d, settings.bird_color.gamma());
+				leds.set_bird(d, settings.bird_color);
 			}
 
 			int32_t i0 = -1;
@@ -4632,7 +4591,7 @@ static void advance_mode(uint32_t mode) {
 		for (; ;) {
 
 			for (uint32_t d = 0; d < 4; d++) {
-				leds.set_bird(d, settings.bird_color.gamma());
+				leds.set_bird(d, settings.bird_color);
 			}
 
 			int32_t r = settings.ring_color.r();
@@ -4649,9 +4608,9 @@ static void advance_mode(uint32_t mode) {
 			}
 
 			for (uint32_t d = 0; d < 8; d++) {
-				leds.set_ring(d, gamma_curve[r],
-						 		 gamma_curve[g],
-						 		 gamma_curve[b]);
+				leds.set_ring(d, r,
+						 		 g,
+						 		 b);
 			}
 			
 			walk ++;
@@ -4674,7 +4633,7 @@ static void advance_mode(uint32_t mode) {
 		for (; ;) {
 
 			for (uint32_t d = 0; d < 8; d++) {
-				leds.set_ring(d, settings.ring_color.gamma());
+				leds.set_ring(d, settings.ring_color);
 			}
 
 			int32_t r = settings.ring_color.r();
@@ -4691,9 +4650,9 @@ static void advance_mode(uint32_t mode) {
 			}
 
 			for (uint32_t d = 0; d < 4; d++) {
-				leds.set_bird(d, gamma_curve[r],
-								 gamma_curve[g],
-								 gamma_curve[b]);
+				leds.set_bird(d, r,
+								 g,
+								 b);
 			}
 			
 			walk ++;
@@ -4765,15 +4724,11 @@ static void advance_mode(uint32_t mode) {
 			}
 
 			for (uint32_t d = 0; d < 8; d++) {
-				leds.set_ring(d, gamma_curve[r1r],
-						 		 gamma_curve[r1g],
-						 		 gamma_curve[r1b]);
+				leds.set_ring(d, r1r, r1g, r1b);
 			}
 
 			for (uint32_t d = 0; d < 4; d++) {
-				leds.set_bird(d, gamma_curve[b1r],
-						 		 gamma_curve[b1g],
-						 		 gamma_curve[b1b]);
+				leds.set_bird(d, b1r, b1g, b1b);
 			}
 
 			if (post_frame(   20)) {
