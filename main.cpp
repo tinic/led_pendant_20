@@ -2001,9 +2001,9 @@ class SX1280 {
 				Chip_UART_SetModemControl(LPC_USART, (UART_MCR_AUTO_RTS_EN | UART_MCR_AUTO_CTS_EN));
 				
 				Chip_UART_TXEnable(LPC_USART);
-
-				Reset();
 				
+				Reset();
+
 				if (!pollMode) {
 					Chip_PININT_SetPinModeEdge(LPC_PININT, INT_CHN);
 					Chip_PININT_EnableIntLow(LPC_PININT, INT_CHN);
@@ -2029,11 +2029,14 @@ class SX1280 {
 				// a reset.
 				//
 
+				uint32_t reset_counter = 0;
 				do {
+					if (reset_counter++ > 512) {
+						Reset();
+						reset_counter = 0;
+					}
 					putchar( RADIO_GET_STATUS );
 				} while ( getchar( ) != 0x40 );
-
-				delay( 10 );
 
 				Wakeup();
 
@@ -2055,14 +2058,13 @@ class SX1280 {
 				PacketParams.Params.LoRa.Crc                 = LORA_CRC_ON;
 				PacketParams.Params.LoRa.InvertIQ            = LORA_IQ_NORMAL;
 				SetPacketParams( &PacketParams );
-
+				
 				SetRfFrequency( RF_FREQUENCY );
 				SetBufferBaseAddresses( 0x00, 0x00 );
 				SetTxParams( TX_OUTPUT_POWER, RADIO_RAMP_20_US );
 				SetDioIrqParams( SX1280::IrqMask, SX1280::IrqMask, IRQ_RADIO_NONE, IRQ_RADIO_NONE );
-
+				
 		    	SetRx( TickTime { RX_TIMEOUT_TICK_SIZE, RX_TIMEOUT_VALUE } );
-
 			}
 			
 			void SendBuffer() {
@@ -2076,18 +2078,20 @@ class SX1280 {
 				Chip_GPIO_SetPinDIROutput(LPC_GPIO, (UART_RTS>>8), (UART_RTS&0xFF));
 				Chip_GPIO_SetPinOutLow(LPC_GPIO, (UART_RTS>>8), (UART_RTS&0xFF));
 
-				delay( 20 );
+				delay( 50 );
 				Chip_GPIO_SetPinDIROutput(LPC_GPIO, (RESET_PIN>>8), (RESET_PIN&0xFF));
 				Chip_GPIO_SetPinOutLow(LPC_GPIO, (RESET_PIN>>8), (RESET_PIN&0xFF));
 				delay( 50 );
 				Chip_GPIO_SetPinOutHigh(LPC_GPIO, (RESET_PIN>>8), (RESET_PIN&0xFF));
-				delay( 20 );
+				delay( 50 );
 				enableIRQ();
 
 				Chip_IOCON_PinMuxSet(LPC_IOCON, (UART_RTS>>8), (UART_RTS&0xFF), IOCON_FUNC1 | IOCON_MODE_INACT);
 				Chip_GPIO_SetPinDIROutput(LPC_GPIO, (UART_RTS>>8), (UART_RTS&0xFF));
 				
 				WaitOnBusy();
+				
+				delay( 10 );
 			}
 			
 			void Wakeup() {
@@ -4776,10 +4780,10 @@ int main(void)
 	Setup setup(sdd1306, bq24295);
 
 	if (bq24295.DevicePresent()) {
-		bq24295.SetBoostUpperTemperatureLimit(60);
+		bq24295.SetBoostUpperTemperatureLimit(80);
 		bq24295.SetInputCurrentLimit(900);
 		bq24295.EnableInputLimits();
-		bq24295.SetChipThermalRegulationThreshold(60);
+		bq24295.SetChipThermalRegulationThreshold(80);
 		bq24295.SetBoostVoltage(5000);
 	}
 	
