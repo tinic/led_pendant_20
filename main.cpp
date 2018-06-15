@@ -528,7 +528,7 @@ public:
 		Chip_SSP_Enable(LPC_SSP1);
 	}
 
-	void push_frame(LEDs &leds, int32_t d, uint32_t brightness = 0x01)  {
+	void push_frame(LEDs &leds, uint32_t brightness = 0x01)  {
 	
 		// Set to GPIO, shared with flash chip
 		Chip_IOCON_PinMuxSet(LPC_IOCON, (ALT_SCK0_PIN>>8), (ALT_SCK0_PIN&0xFF), IOCON_FUNC0);
@@ -570,8 +570,6 @@ public:
 		push_byte_btm(0xFF);
 		push_byte_top(0xFF);
 		push_byte_btm(0xFF);
-
-		delay(d);
 	}
 
 private:
@@ -1056,7 +1054,7 @@ class Setup {
 				Chip_PININT_EnableIntHigh(LPC_PININT, 0);
 				Chip_PININT_EnableIntLow(LPC_PININT, 0);
 			}
-
+			
 			void InitI2C(SDD1306 &sdd1306, BQ24295 &bq24295) {
 				Chip_SYSCTL_PeriphReset(RESET_I2C0);
 
@@ -3221,6 +3219,9 @@ class UI {
 	EEPROM &settings;
 	SDD1306 &sdd1306;
 	
+	uint32_t mode;
+	uint32_t mode_start_time;
+	
 public:
 	
 	UI(EEPROM &_settings,
@@ -3233,6 +3234,8 @@ public:
 	const uint32_t SECONDARY_BUTTON = 0x0001;
 
 	void Init() {
+		
+		mode = 0;
 		
 		Chip_Clock_EnablePeriphClock(SYSCTL_CLOCK_PINT);
 
@@ -3294,7 +3297,98 @@ public:
 			Chip_PININT_ClearIntStatus(LPC_PININT, PININTCH2);
 		}
 	}
+	
+	void SetMode(uint32_t current_time, uint32_t _mode) {
+		mode_start_time = current_time;
+		mode = _mode;
+	}
 
+	void DisplayNow() {
+		if ((system_clock_ms - mode_start_time) < 50) {
+			for (int32_t c=0; c<8; c++) {
+				sdd1306.PlaceCustomChar(c,0,0xB8+c);
+			}
+			for (int32_t c=0; c<8; c++) {
+				sdd1306.PlaceCustomChar(c,1,0xC0+c);
+			}
+			for (int32_t c=0; c<8; c++) {
+				sdd1306.PlaceCustomChar(c,2,0xC8+c);
+			}
+			for (int32_t c=0; c<8; c++) {
+				sdd1306.PlaceCustomChar(c,3,0);
+			}
+			sdd1306.SetVerticalShift(0);
+		}
+		else if ((system_clock_ms - mode_start_time) < 50 + 640 + 50) {
+			uint32_t ltime = (system_clock_ms - mode_start_time) - 50;
+			static uint8_t bounce[] = {
+				0x1f, 0x1f, 0x1f, 0x1f, 0x1f, 0x1e, 0x1d, 0x1d, 
+				0x1c, 0x1b, 0x1a, 0x18, 0x17, 0x16, 0x14, 0x12, 
+				0x10, 0x0e, 0x0c, 0x0a, 0x08, 0x05, 0x03, 0x01, 
+				0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x07, 0x08, 
+				0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x07, 0x07, 
+				0x06, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01, 0x01, 
+				0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 
+				0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 
+			};
+			uint32_t y = ltime/10;
+			if (y >= 64) y = 63;
+			sdd1306.Display();
+			sdd1306.SetVerticalShift(bounce[y]);
+		}
+		else if ((system_clock_ms - mode_start_time) < 1000 + 50 + 640 + 50) {
+			uint32_t ltime = (system_clock_ms - mode_start_time) - (50 + 640 + 50);
+			if (((ltime / 100)&1) == 0) {
+				for (int32_t c=0; c<8; c++) {
+					sdd1306.PlaceCustomChar(c,0,0);
+				}
+				for (int32_t c=0; c<8; c++) {
+					sdd1306.PlaceCustomChar(c,1,0);
+				}
+				for (int32_t c=0; c<8; c++) {
+					sdd1306.PlaceCustomChar(c,2,0);
+				}
+				for (int32_t c=0; c<8; c++) {
+					sdd1306.PlaceCustomChar(c,3,0);
+				}
+				sdd1306.Display();
+			} else if (((ltime / 100)&1) == 1) {
+				for (int32_t c=0; c<8; c++) {
+					sdd1306.PlaceCustomChar(c,0,0xB8+c);
+				}
+				for (int32_t c=0; c<8; c++) {
+					sdd1306.PlaceCustomChar(c,1,0xC0+c);
+				}
+				for (int32_t c=0; c<8; c++) {
+					sdd1306.PlaceCustomChar(c,2,0xC8+c);
+				}
+				for (int32_t c=0; c<8; c++) {
+					sdd1306.PlaceCustomChar(c,3,0);
+				}
+				sdd1306.Display();
+			}
+		}
+		else if ((system_clock_ms - mode_start_time) < 160 + 1000 + 50 + 640 + 50) {
+			uint32_t ltime = (system_clock_ms - mode_start_time) - (1000 + 50 + 640 + 50);
+			static int8_t ease[] = {
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 
+				0x02, 0x02, 0x03, 0x03, 0x04, 0x05, 0x06, 0x07, 
+				0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0e, 0x0f, 0x11, 
+				0x12, 0x14, 0x15, 0x17, 0x19, 0x1b, 0x1d, 0x1f, 
+				0x1f,
+			};
+			sdd1306.SetVerticalShift(-ease[ltime/5]);
+			sdd1306.SetCenterFlip(ltime/5);
+			sdd1306.Display();
+		} else {
+			mode = 0;
+			DisplayStatus();
+			sdd1306.SetVerticalShift(0);
+			sdd1306.SetCenterFlip(0);
+			sdd1306.Display();
+		}
+	}
+	
 	void DisplayBar(uint8_t x, uint8_t y, uint8_t w, uint8_t val) {
 		if (w < 2 || x+w > 8 || y > 4) {
 			return;
@@ -3379,6 +3473,17 @@ public:
 		sdd1306.PlaceAsciiStr(1,3,str);
 		sdd1306.Display();
 	}
+	
+	void Display() {
+		switch (mode) {
+			case	0:
+					DisplayStatus();
+					break;
+			case	1:
+					DisplayNow();
+					break;
+		}
+	}
 };
 
 class Effects {
@@ -3390,9 +3495,9 @@ class Effects {
 	SDD1306 &sdd1306;
 	UI &ui;
 
-	uint32_t frame_counter;
-	char frame_str[16];
-
+	uint32_t post_clock_ms;
+	bool past_post_time;
+	
 public:
 	
 	Effects(EEPROM &_settings, 
@@ -3408,100 +3513,112 @@ public:
 			spi(_spi),
 			sdd1306(_sdd1306),
 			ui(_ui)	{
-		frame_counter = 0;
+		post_clock_ms = system_clock_ms + 10;
+		past_post_time = true;
 	}	
-
+	
 	void RunForever() {
 		while (1) {
-			switch(settings.program_curr) {
-				case	0:
-						color_ring();
-						break;
-				case	1:	
-						fade_ring();
-						break;
-				case	2:
-						rgb_walker();
-						break;
-				case	3:
-						rgb_glow();
-						break;
-				case	4:
-						rgb_tracer();
-						break;
-				case	5: 
-						ring_tracer();
-						break;
-				case	6:
-						light_tracer();
-						break;
-				case	7: 
-						ring_bar_rotate();
-						break;
-				case	8: 
-						ring_bar_move();
-						break;
-				case	9:
-						sparkle();
-						break;
-				case	10:
-						lightning();
-						break;
-				case	11:
-						lightning_crazy();
-						break;
-				case 	12:
-						rgb_vertical_wall();
-						break;
-				case 	13:
-						rgb_horizontal_wall();
-						break;
-				case	14:
-						shine_vertical();
-						break;
-				case	15:
-						shine_horizontal();
-						break;	
-				case 	16:
-						heartbeat();
-						break;
-				case 	17:
-						brilliance();
-						break;
-				case    18:
-						tingling();
-						break;
-				case    19:
-						twinkle();
-						break;
-				case	20:
-						simple_change_ring();
-						break;
-				case	21:
-						simple_change_bird();
-						break;
-				case	22:
-						simple_random();
-						break;
-				case	23:
-						diagonal_wipe();
-						break;
-				case	24:
-						shimmer_outside();
-						break;
-				case	25:
-						shimmer_inside();
-						break;
-				case	26:
-						red();
-						break;
-				default:
-						color_ring();
-						break;
+			if (past_post_time) {
+				past_post_time = false;
+				switch(settings.program_curr) {
+					case	0:
+							color_ring();
+							break;
+					case	1:	
+							fade_ring();
+							break;
+					case	2:
+							rgb_walker();
+							break;
+					case	3:
+							rgb_glow();
+							break;
+					case	4:
+							rgb_tracer();
+							break;
+					case	5: 
+							ring_tracer();
+							break;
+					case	6:
+							light_tracer();
+							break;
+					case	7: 
+							ring_bar_rotate();
+							break;
+					case	8: 
+							ring_bar_move();
+							break;
+					case	9:
+							sparkle();
+							break;
+					case	10:
+							lightning();
+							break;
+					case	11:
+							lightning_crazy();
+							break;
+					case 	12:
+							rgb_vertical_wall();
+							break;
+					case 	13:
+							rgb_horizontal_wall();
+							break;
+					case	14:
+							shine_vertical();
+							break;
+					case	15:
+							shine_horizontal();
+							break;	
+					case 	16:
+							heartbeat();
+							break;
+					case 	17:
+							brilliance();
+							break;
+					case    18:
+							tingling();
+							break;
+					case    19:
+							twinkle();
+							break;
+					case	20:
+							simple_change_ring();
+							break;
+					case	21:
+							simple_change_bird();
+							break;
+					case	22:
+							simple_random();
+							break;
+					case	23:
+							diagonal_wipe();
+							break;
+					case	24:
+							shimmer_outside();
+							break;
+					case	25:
+							shimmer_inside();
+							break;
+					case	26:
+							red();
+							break;
+					default:
+							color_ring();
+							break;
+				}
 			}
+			__WFI();
 		}
 	}
 
+	void CheckPostTime() {
+		if (system_clock_ms > post_clock_ms) {
+			past_post_time = true;
+			post_clock_ms = system_clock_ms + 250; // at minimum update every 0.25s
+		}
+	}
+	
 private:
 
 	bool break_effect() {
@@ -3514,16 +3631,27 @@ private:
 	}
 	
 	bool post_frame(uint32_t ms) {
+		post_clock_ms = system_clock_ms + ms;
 
-		spi.push_frame(leds, int32_t(ms), settings.brightness);
+		spi.push_frame(leds, settings.brightness);
 
 		if (sdd1306.DevicePresent()) {
-			ui.DisplayStatus();
+			ui.Display();
 		}
 
-		return break_effect();
+		for ( ; ; ) {
+			if (past_post_time) {
+				past_post_time = false;
+				return break_effect();
+			}
+			if (break_effect()) {
+				return true;
+			}
+			__WFI();
+		}
+		return false;
 	}
-
+	
 	void color_ring() {
 		for (; ;) {
 			for (uint32_t d = 0; d < 8; d++) {
@@ -4688,12 +4816,19 @@ private:
 }  // namespace {
 
 static UI *g_ui = 0;
+static Effects *g_effects = 0;
 
 extern "C" {
 	
 	void SysTick_Handler(void)
 	{	
 		system_clock_ms++;
+		
+		if ( (system_clock_ms % (1024*64)) == 0) {
+			g_ui->SetMode(system_clock_ms, 1);
+		}
+		
+		g_effects->CheckPostTime();
 	}
 
 	void TIMER32_0_IRQHandler(void)
@@ -4752,7 +4887,7 @@ int main(void)
 
 	LEDs leds;
 	
-	spi.push_frame(leds, 0, 0);
+	spi.push_frame(leds, 0);
 
 	if (sdd1306.DevicePresent()) {
 		sdd1306.Init(); 
@@ -4813,6 +4948,8 @@ int main(void)
 	SysTick_Config(SystemCoreClock / 1000);
 
 	Effects effects(settings, random, leds, spi, sdd1306, ui);
+	
+	g_effects = &effects;
 
 	effects.RunForever();
 	
