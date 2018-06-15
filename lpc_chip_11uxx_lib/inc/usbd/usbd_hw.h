@@ -378,7 +378,7 @@ typedef struct USBD_HW_API
    *  \param[in] cnt  Number of bytes to write. 
    *  \return Returns the number of bytes written.
    */
-  uint32_t (*WriteEP)(USBD_HANDLE_T hUsb, uint32_t EPNum, uint8_t *pData, uint32_t cnt);
+  uint32_t (*WriteEP)(USBD_HANDLE_T hUsb, uint32_t EPNum, const uint8_t *pData, uint32_t cnt);
 
   /** \fn void WakeUp(USBD_HANDLE_T hUsb)
    *  Function to generate resume signaling on bus for remote host wakeup.
@@ -442,7 +442,7 @@ extern ErrorCode_t hwUSB_SetTestMode(USBD_HANDLE_T hUsb, uint8_t mode); /* for F
 extern uint32_t hwUSB_ReadEP(USBD_HANDLE_T hUsb, uint32_t EPNum, uint8_t *pData);
 extern uint32_t hwUSB_ReadReqEP(USBD_HANDLE_T hUsb, uint32_t EPNum, uint8_t *pData, uint32_t len);
 extern uint32_t hwUSB_ReadSetupPkt(USBD_HANDLE_T hUsb, uint32_t, uint32_t *);
-extern uint32_t hwUSB_WriteEP(USBD_HANDLE_T hUsb, uint32_t EPNum, uint8_t *pData, uint32_t cnt);
+extern uint32_t hwUSB_WriteEP(USBD_HANDLE_T hUsb, uint32_t EPNum, const uint8_t *pData, uint32_t cnt);
 
 /* generate resume signaling on the bus */
 extern void  hwUSB_WakeUp(USBD_HANDLE_T hUsb);

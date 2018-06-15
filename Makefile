@@ -27,7 +27,7 @@ else
 endif
 
 # compiler and linker settings
-COMMONFLAGS = -Wall -Wpedantic -Wextra -Wlogical-op -Wnull-dereference -Wdouble-promotion -Wshadow -Wno-unused-parameter -DCORE_M0 -mcpu=cortex-m0 -I./ -Ilpc_chip_11uxx_lib -Ilpc_chip_11uxx_lib/inc -Os -ggdb
+COMMONFLAGS = -Wall -Wpedantic -Wextra -Wlogical-op -Wnull-dereference -Wdouble-promotion -Wshadow -Wno-unused-parameter -DCORE_M0 -mcpu=cortex-m0 -I./ -Ilpc_chip_11uxx_lib -Ilpc_chip_11uxx_lib/inc -Ilpc_chip_11uxx_lib/inc/usbd -Os -ggdb
 CFLAGS = $(COMMONFLAGS) -Wjump-misses-init -std=c11
 CXXFLAGS = $(COMMONFLAGS) -std=c++14 -fno-rtti -fno-exceptions 
 LDFLAGS = -Xlinker -print-memory-usage -Wl,--gc-sections,--script=LPC11U34_311.ld -nostartfiles
