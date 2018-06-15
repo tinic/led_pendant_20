@@ -200,7 +200,11 @@ static const uint32_t ring_colors[] = {
 };
 
 static void delay(uint32_t ms) {
-	for (volatile uint32_t i = 0; i < ms*3000; i++) {}
+    for (volatile uint32_t j = 0; j < ms; j++) {
+        Chip_WWDT_Feed(LPC_WWDT);
+        for (volatile uint32_t i = 0; i < 3000; i++) {
+        }
+    }
 }
 
 class Random {
@@ -1091,7 +1095,8 @@ class SDD1306 {
 class Setup {
 
 	public:
-			Setup(SDD1306 &sdd1306, BQ24295 &bq24295) {
+            Setup(SDD1306 &sdd1306, BQ24295 &bq24295) {
+                InitWWDT();
 				InitGPIO();
 				InitPININT();
 				InitADC();
@@ -1099,6 +1104,24 @@ class Setup {
 			}
 
 	private:
+            void InitWWDT() {
+                Chip_WWDT_Init(LPC_WWDT);
+
+                Chip_SYSCTL_PowerUp(SYSCTL_POWERDOWN_WDTOSC_PD);
+                Chip_Clock_SetWDTOSC(WDTLFO_OSC_1_05, 20);
+                
+                // 1s watchdog timer
+                Chip_WWDT_SelClockSource(LPC_WWDT, WWDT_CLKSRC_WATCHDOG_WDOSC);
+                Chip_WWDT_SetTimeOut(LPC_WWDT, Chip_Clock_GetWDTOSCRate() / 4);
+                Chip_WWDT_SetOption(LPC_WWDT, WWDT_WDMOD_WDRESET);
+                Chip_WWDT_ClearStatusFlag(LPC_WWDT, WWDT_WDMOD_WDTOF | WWDT_WDMOD_WDINT);
+
+                NVIC_ClearPendingIRQ(WDT_IRQn);
+                NVIC_EnableIRQ(WDT_IRQn);
+                
+                Chip_WWDT_Start(LPC_WWDT);
+            }
+    
 			void InitGPIO() {
 				Chip_GPIO_Init(LPC_GPIO);
 			}
@@ -3669,6 +3692,7 @@ public:
 							break;
 				}
 			}
+            Chip_WWDT_Feed(LPC_WWDT);
 			__WFI();
 		}
 	}
@@ -3708,6 +3732,7 @@ private:
 			if (break_effect()) {
 				return true;
 			}
+            Chip_WWDT_Feed(LPC_WWDT);
 			__WFI();
 		}
 		return false;
