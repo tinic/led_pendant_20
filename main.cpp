@@ -1246,15 +1246,13 @@ class SDD1306 {
 				devicePresent = false;
 			}
 			
-			void Clear(uint32_t value = 0x00) {
-				for (uint32_t c = 0; c < 32; c++) {
-					for (uint32_t d = 0; d < (64/8); d++) {
-						graphics_buffer[(c*(64/8))+d] = value;
-					}
-				}
-				DisplayGraphicsBuffer();
+			void Clear() {
 				memset(text_buffer_cache, 0, sizeof(text_buffer_cache));
 				memset(text_buffer_screen, 0, sizeof(text_buffer_screen));
+				memset(text_attr_cache, 0, sizeof(text_attr_cache));
+				memset(text_attr_screen, 0, sizeof(text_attr_screen));
+				center_flip_screen = 0;
+				center_flip_cache = 0;
 			}
 			
 			void DisplayBootScreen() {
@@ -1262,10 +1260,9 @@ class SDD1306 {
 					text_buffer_cache[c] = 0x80 + c;
 				}
 			}
-
-			void PlaceC16Char(uint32_t x, uint32_t y, uint8_t code) {
-				if (y>3 || x>7) return;
-				text_buffer_cache[y*8+x] = code;
+			
+			void SetCenterFlip(int8_t progression) {
+				center_flip_cache = progression;
 			}
 
 			void PlaceAsciiStr(uint32_t x, uint32_t y, const char *str) {
@@ -1275,22 +1272,50 @@ class SDD1306 {
 				for (size_t c=0; c<len; c++) {
 					text_buffer_cache[y*8+x+c] = uint8_t(str[c]) - 0x20;
 				}
-			} 
-
-			void Display() {
-				for (uint32_t y=0; y<4; y++) {
-					for (uint32_t x=0; x<8; x++) {
-						if (text_buffer_cache[y*8+x] != text_buffer_screen[y*8+x]) {
-							text_buffer_screen[y*8+x] = text_buffer_cache[y*8+x];
-							DisplayChar(x,y,text_buffer_screen[y*8+x]);
-						}
-					}
+			}
+			
+			void Invert() {
+				for (uint32_t c=0; c<8*4; c++) {
+					text_attr_cache[c] ^= 1;
 				}
 			}
 			
-			void SetVerticalShift(uint8_t val) {
+			void SetAttr(uint32_t x, uint32_t y, uint8_t attr) {
+				if (y>3 || x>7) return;
+				text_attr_cache[y*8+x] = attr;
+			}
+
+			void Display() {
+				bool display_center_flip = false;
+				if (center_flip_cache || center_flip_screen) {
+					center_flip_screen = center_flip_cache;
+					display_center_flip = true;
+				}
+				for (uint32_t y=0; y<4; y++) {
+					for (uint32_t x=0; x<8; x++) {
+						if (text_buffer_cache[y*8+x] != text_buffer_screen[y*8+x] ||
+						    text_attr_cache[y*8+x] != text_attr_screen[y*8+x]) {
+							text_buffer_screen[y*8+x] = text_buffer_cache[y*8+x];
+							text_attr_screen[y*8+x] = text_attr_cache[y*8+x];
+							if (!display_center_flip) {
+								DisplayChar(x,y,text_buffer_screen[y*8+x],text_attr_screen[y*8+x]);
+							}
+						}
+					}
+				}
+				if (display_center_flip) {
+					DisplayCenterFlip();
+				}
+			}
+			
+			void SetVerticalShift(int8_t val) {
 				WriteCommand(0xD3);
-				WriteCommand(val&0x3F);
+				if (val < 0) {
+					val = 64+val;
+					WriteCommand(val&0x3F);
+				} else {
+					WriteCommand(val&0x3F);
+				}
 			}
 
 			void DisplayOn() {
@@ -1376,7 +1401,35 @@ class SDD1306 {
 
 	private:
 
-			void DisplayChar(uint32_t x, uint32_t y, char ch) {
+			void DisplayCenterFlip() {
+				uint8_t buf[65];
+				buf[0] = 0x40;
+				for (uint32_t y=0; y<4; y++) {
+					WriteCommand(0xB0+y);
+					uint32_t sx = 32;
+					WriteCommand(0x0f&(sx   )); // 0x20 offset
+					WriteCommand(0x10|(sx>>4)); // 0x20 offset
+					for (uint32_t x = 0; x < 64; x++) {
+						if (center_flip_screen == 32) {
+							buf[x+1] = 0x00;
+						} else {
+							int32_t rx = ( ( ( int32_t(x) - 32 ) * 32 ) / int32_t(32 - center_flip_screen) ) + 32;
+							if (rx < 0 || rx > 63) { 
+								buf[x+1] = 0x00;
+							} else {
+								if (text_attr_screen[y*8+rx/8] & 1) {
+									buf[x+1] = ~duck_font_raw[text_buffer_screen[y*8+rx/8]*8+(rx&7)];
+								} else {
+									buf[x+1] =  duck_font_raw[text_buffer_screen[y*8+rx/8]*8+(rx&7)];
+								}
+							}
+						}
+					}
+					Chip_I2C_MasterSend(I2C0, i2caddr, buf, 0x41);
+				} 
+			}
+
+			void DisplayChar(uint32_t x, uint32_t y, char ch, uint8_t attr) {
 				WriteCommand(0xB0+y);
 				x=x*8+32;
 				WriteCommand(0x0f&(x   )); // 0x20 offset
@@ -1384,14 +1437,15 @@ class SDD1306 {
 				
 				uint8_t buf[9];
 				buf[0] = 0x40;
-				buf[1] = duck_font_raw[ch*8+0];
-				buf[2] = duck_font_raw[ch*8+1];
-				buf[3] = duck_font_raw[ch*8+2];
-				buf[4] = duck_font_raw[ch*8+3];
-				buf[5] = duck_font_raw[ch*8+4];
-				buf[6] = duck_font_raw[ch*8+5];
-				buf[7] = duck_font_raw[ch*8+6];
-				buf[8] = duck_font_raw[ch*8+7];
+				if (attr & 1) {
+					for (uint32_t c=0; c<8; c++) {
+						buf[c+1] = ~duck_font_raw[ch*8+c];
+					}
+				} else {
+					for (uint32_t c=0; c<8; c++) {
+						buf[c+1] =  duck_font_raw[ch*8+c];
+					}
+				}
 				Chip_I2C_MasterSend(I2C0, i2caddr, buf, 0x9);
 			}
 
@@ -1407,23 +1461,12 @@ class SDD1306 {
 
 			bool devicePresent;
 
+			int8_t center_flip_screen;
+			int8_t center_flip_cache;
 			uint8_t text_buffer_cache[8*4];
 			uint8_t text_buffer_screen[8*4];
-
-
-			uint8_t graphics_buffer[(64/8) * 32];
-
-			void DisplayGraphicsBuffer() {
-				uint8_t line[65];
-				line[0] = 0x40;
-				for (uint32_t y = 0; y < 4; y ++) {
-					WriteCommand(0xB0+y);
-					WriteCommand(0x00); // 0x00 +
-					WriteCommand(0x12); // 0x20 offset
-					memcpy(&line[1],&graphics_buffer[y*0x40],0x40);
-					Chip_I2C_MasterSend(I2C0, i2caddr, line, 0x41);
-				}
-			}
+			uint8_t text_attr_cache[8*4];
+			uint8_t text_attr_screen[8*4];
 };  // class SDD1306
 
 class Setup {
@@ -5094,8 +5137,8 @@ int main(void)
 
 	if (sdd1306.DevicePresent()) {
 		sdd1306.Init(); 
+		sdd1306.Clear();
 		sdd1306.DisplayBootScreen();
-		sdd1306.Display();
 		static uint8_t bounce[] = {
 			0x1f, 0x1f, 0x1f, 0x1f, 0x1f, 0x1e, 0x1d, 0x1d, 
 			0x1c, 0x1b, 0x1a, 0x18, 0x17, 0x16, 0x14, 0x12, 
@@ -5106,11 +5149,27 @@ int main(void)
 			0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 
 			0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 
 		};
+		sdd1306.SetVerticalShift(bounce[0]);
+		sdd1306.Display();
 		for (uint32_t y=0; y<64; y++) {
 			sdd1306.SetVerticalShift(bounce[y]);
 			delay(10);
 		}
 		delay(500);
+		static int8_t ease[] = {
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 
+			0x02, 0x02, 0x03, 0x03, 0x04, 0x05, 0x06, 0x07, 
+			0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0e, 0x0f, 0x11, 
+			0x12, 0x14, 0x15, 0x17, 0x19, 0x1b, 0x1d, 0x1f, 
+		};
+		for (uint32_t x=0; x<=32; x++) {
+			sdd1306.SetVerticalShift(-ease[x]);
+			sdd1306.SetCenterFlip(x);
+			sdd1306.Display();
+			delay(1);
+		}
+		sdd1306.SetVerticalShift(0);
+		sdd1306.SetCenterFlip(0);
 	}
 
 	Random random(0xCAFFE);
