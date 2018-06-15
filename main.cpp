@@ -779,15 +779,14 @@ public:
 		program_count = 27;
 		program_curr = 2;
 		program_change_count = 0;
-
+		brightness = 15;
 		bird_color_index = 0;
 		bird_color = rgba(bird_colors[bird_color_index]);
-
 		ring_color_index = 5;
 		ring_color = rgba(ring_colors[ring_color_index]);
 	}
 
-	void load() {
+	void Load() {
 		unsigned int param[5] = { 0 };
 		param[0] = 62; // Read EEPROM
 		param[1] = 0; // EEPROM address
@@ -801,7 +800,10 @@ public:
 			bird_color == 0UL ||
 			bird_color_index > 16 ||
 			ring_color == 0UL ||
-			ring_color_index > 16 ) {
+			ring_color_index > 16 ||
+			brightness == 0 ||
+			brightness >= 16 ) {
+				
 			bird_color_index = 0;
 			bird_color = bird_colors[bird_color_index];
 			ring_color_index = 5;
@@ -809,11 +811,12 @@ public:
 			program_count = 27;
 			program_curr = 0;
 			program_change_count = 0;
-			save();
+			brightness = 15;
+			Save();
 		}
 	}
 
-	void save() {
+	void Save() {
 		unsigned int param[5] = { 0 };
 		param[0] = 61; // Write EEPROM
 		param[1] = 0; // EEPROM address
@@ -824,6 +827,21 @@ public:
 		iap_entry(param, result);
 	}
 
+	void NextEffect() {
+		program_curr++;
+		program_change_count++;
+		if (program_curr >= program_count) {
+			program_curr = 0;
+		}
+		Save();
+	}
+	
+	void NextBrightness() {
+		brightness ++;
+		brightness &= 0xF;
+		Save();
+	}
+	
 	uint32_t program_count;
 	uint32_t program_curr;
 	uint32_t program_change_count;
@@ -831,7 +849,7 @@ public:
 	uint32_t bird_color_index;
 	rgba ring_color;
 	uint32_t ring_color_index;
-
+	uint32_t brightness;
 };
  
 class SPI;
@@ -1272,6 +1290,11 @@ class SDD1306 {
 				for (size_t c=0; c<len; c++) {
 					text_buffer_cache[y*8+x+c] = uint8_t(str[c]) - 0x20;
 				}
+			}
+
+			void PlaceCustomChar(uint32_t x, uint32_t y, uint8_t code) {
+				if (y>3 || x>7) return;
+				text_buffer_cache[y*8+x] = code;
 			}
 			
 			void Invert() {
@@ -3652,13 +3675,132 @@ class SX1280 {
     bool 					IrqState = false;
     bool 					PollingMode = true;
 
-} sx1280;
+};
 
-extern "C" {
-	void PIN_INT0_IRQHandler(void) {
-		sx1280.OnDioIrq();
+class UI {
+	EEPROM &settings;
+	SDD1306 &sdd1306;
+	
+public:
+	
+	UI(EEPROM &_settings,
+	   SDD1306 &_sdd1306):
+		settings(_settings),
+		sdd1306(_sdd1306) {
 	}
-}
+
+	const uint32_t PRIMARY_BUTTON = 0x0119;
+	const uint32_t SECONDARY_BUTTON = 0x0001;
+
+	void Init() {
+		Chip_Clock_EnablePeriphClock(SYSCTL_CLOCK_PINT);
+
+		Chip_IOCON_PinMuxSet(LPC_IOCON, uint8_t(PRIMARY_BUTTON>>8), uint8_t(PRIMARY_BUTTON&0xFF), IOCON_FUNC0 | IOCON_MODE_PULLUP);
+		Chip_GPIO_SetPinDIRInput(LPC_GPIO, uint8_t(PRIMARY_BUTTON>>8), uint8_t(PRIMARY_BUTTON&0xFF));
+
+		Chip_PININT_SetPinModeEdge(LPC_PININT, PININTCH1);
+		Chip_PININT_EnableIntLow(LPC_PININT, PININTCH1);
+		Chip_SYSCTL_SetPinInterrupt(1, uint8_t(PRIMARY_BUTTON>>8), uint8_t(PRIMARY_BUTTON&0xFF));  
+
+		NVIC_ClearPendingIRQ(PIN_INT1_IRQn);  
+		NVIC_EnableIRQ(PIN_INT1_IRQn);  
+		
+		Chip_IOCON_PinMuxSet(LPC_IOCON, uint8_t(SECONDARY_BUTTON>>8), uint8_t(SECONDARY_BUTTON&0xFF), IOCON_FUNC0 | IOCON_MODE_PULLUP);
+		Chip_GPIO_SetPinDIRInput(LPC_GPIO, uint8_t(SECONDARY_BUTTON>>8), uint8_t(SECONDARY_BUTTON&0xFF));
+
+		Chip_PININT_SetPinModeEdge(LPC_PININT, PININTCH2);
+		Chip_PININT_EnableIntLow(LPC_PININT, PININTCH2);
+		Chip_SYSCTL_SetPinInterrupt(2, uint8_t(SECONDARY_BUTTON>>8), uint8_t(SECONDARY_BUTTON&0xFF));  
+
+		NVIC_ClearPendingIRQ(PIN_INT2_IRQn);  
+		NVIC_EnableIRQ(PIN_INT2_IRQn);  
+	}
+
+	void DisplayBar(uint8_t x, uint8_t y, uint8_t w, uint8_t val) {
+		if (w < 2 || x+w > 8 || y > 4) {
+			return;
+		}
+
+		int32_t adj = ( val * ( w * 2 + 1) ) / 255;
+
+		uint8_t ch = 0;
+		if (adj == 0) { 
+			ch = 0x6B; 
+		}
+		else if (adj == 1) { 
+			ch = 0x6C; 
+		}
+		else { 
+			ch = 0x6D;
+		}
+		sdd1306.PlaceCustomChar(x,y,ch);
+
+		for (int32_t xx=0; xx<w; xx++) {
+			if (xx == 0 || xx == w-1) continue;
+			if (adj > xx*2 + 1) {
+				ch = 0x70;
+			} else if (adj > xx*2 ) {
+				ch = 0x6F;
+			} else {
+				ch = 0x6E;
+			}
+			sdd1306.PlaceCustomChar(x+xx,y,ch);
+		}
+		
+		if (adj > (w-1) * 2 + 1) { 
+			ch = 0x73; 
+		}
+		else if (adj > (w-1) * 2 ) { 
+			ch = 0x72; 
+		}
+		else {
+			ch = 0x71;
+		}
+		sdd1306.PlaceCustomChar(x+w-1,y,ch);
+	}
+	
+	uint8_t NormBatteryChargeForBar() {
+		static int32_t avg_buf[16];
+		static int32_t avg_pos = 0;
+
+		uint16_t adc5_value = 0;
+		Chip_ADC_SetStartMode(LPC_ADC, ADC_START_NOW, ADC_TRIGGERMODE_RISING);
+		while (Chip_ADC_ReadStatus(LPC_ADC, ADC_CH5, ADC_DR_DONE_STAT) != SET) {}
+		Chip_ADC_ReadValue(LPC_ADC, ADC_CH5, &adc5_value);
+		
+		avg_buf[(avg_pos++)&0xF] = (uint32_t(adc5_value) * 4800) / 1024;
+		int32_t avg = 0;
+		
+		for (uint32_t c=0; c<16; c++) {
+			avg += avg_buf[c];
+		}
+		
+		int32_t charge = ((((avg / 16) - 2800) * 255 ) / (4200 - 2800));
+		if (charge < 0) charge = 0;
+		if (charge >= 256 ) charge = 255;
+		return charge;
+	}
+
+	void DisplayStatus() {
+		sdd1306.PlaceCustomChar(0,0,0xA9);
+		sdd1306.PlaceCustomChar(1,0,0xAA);
+		sdd1306.PlaceCustomChar(2,0,0xAB);
+		sdd1306.PlaceCustomChar(3,0,0xAC);
+		sdd1306.PlaceCustomChar(4,0,0xAD);
+		sdd1306.PlaceCustomChar(5,0,0xAE);
+		sdd1306.PlaceCustomChar(6,0,0xAF);
+		sdd1306.PlaceCustomChar(7,0,0xA0+(system_clock_ms/0x400)%8);
+		sdd1306.PlaceCustomChar(0,1,0x65);
+		DisplayBar(1,1,7,uint8_t(settings.brightness*15));
+		sdd1306.PlaceCustomChar(0,2,0x66);
+		DisplayBar(1,2,7,NormBatteryChargeForBar());
+		sdd1306.PlaceCustomChar(0,3,0x67);
+		char str[8];
+		sprintf(str,"[%02d/%02d]",settings.program_curr,settings.program_count);
+		sdd1306.PlaceAsciiStr(1,3,str);
+		sdd1306.Display();
+	}
+};
 
 class Effects {
 
@@ -3667,6 +3809,7 @@ class Effects {
 	LEDs &leds;
 	SPI &spi;
 	SDD1306 &sdd1306;
+	UI &ui;
 
 	uint32_t frame_counter;
 	char frame_str[16];
@@ -3677,13 +3820,15 @@ public:
 			Random &_random, 
 			LEDs &_leds, 
 			SPI &_spi, 
-			SDD1306 &_sdd1306):
+			SDD1306 &_sdd1306,
+			UI &_ui):
 
 			settings(_settings),
 			random(_random),
 			leds(_leds),
 			spi(_spi),
-			sdd1306(_sdd1306) {
+			sdd1306(_sdd1306),
+			ui(_ui)	{
 		frame_counter = 0;
 	}	
 
@@ -3779,56 +3924,11 @@ public:
 	}
 
 private:
-#if 0
-static void advance_mode(uint32_t mode) {
-	switch(mode) {
-		case	0:
-				settings.bird_color_index++; 
-				settings.bird_color_index %= 20; 
-				settings.bird_color = bird_colors[settings.bird_color_index];
-				break;
-		case	1:
-				settings.ring_color_index++; 
-				settings.ring_color_index %= 20; 
-				settings.ring_color = ring_colors[settings.ring_color_index];
-				break;
-	}
-}
 
-#endif  // #if 0
-
-	void config_mode() {
-	}
-
-
-	bool test_button() {
-		//static uint32_t last_config_time = 0;
-		// Don't take into account this button press if we just
-		// came out of configuration
-	//	if ((system_clock_ms - last_config_time) < 1000) {
-	//		return false;
-	//	}
-		if (!Chip_GPIO_GetPinState(LPC_GPIO, 1, 25) ||
-			!Chip_GPIO_GetPinState(LPC_GPIO, 0, 1)) {
-			//uint32_t d_time = system_clock_ms;
-			delay(100);
-			for (;!Chip_GPIO_GetPinState(LPC_GPIO, 1, 25) ||
-				  !Chip_GPIO_GetPinState(LPC_GPIO, 0, 1);) {
-	/*			uint32_t u_time = system_clock_ms;
-				// long press > 2 seconds gets us into config mode
-				if ((u_time - d_time) > 2000) {
-					config_mode();
-					last_config_time = system_clock_ms;
-					return false;
-				}*/
-			}
-			// advance program if we did not end up in config mode
-			settings.program_curr++;
-			settings.program_change_count++;
-			if (settings.program_curr >= settings.program_count) {
-				settings.program_curr = 0;
-			}
-			settings.save();
+	bool break_effect() {
+		static uint32_t old_program_curr = 0;
+		if (settings.program_curr != old_program_curr) {
+			old_program_curr = settings.program_curr;
 			return true;
 		}
 		return false;
@@ -3836,57 +3936,13 @@ static void advance_mode(uint32_t mode) {
 	
 	bool post_frame(uint32_t ms) {
 
-		spi.push_frame(leds, int32_t(ms));
+		spi.push_frame(leds, int32_t(ms), settings.brightness);
 
 		if (sdd1306.DevicePresent()) {
-			sprintf(frame_str, "%08x", frame_counter++);
-			sdd1306.PlaceAsciiStr(0,0,frame_str);
-
-			sprintf(frame_str, "p:%02xc:%02x", settings.program_curr, settings.program_change_count);
-			sdd1306.PlaceAsciiStr(0,1,frame_str);
-
-			sprintf(frame_str, "b:%06x", uint32_t(settings.bird_color));
-			sdd1306.PlaceAsciiStr(0,2,frame_str);
-
-			sprintf(frame_str, "r:%06x", uint32_t(settings.ring_color));
-			sdd1306.PlaceAsciiStr(0,3,frame_str);
-			
-
-			static uint32_t avg_buf[16];
-			static uint32_t avg_pos = 0;
-
-			uint16_t value = 0;
-
-			Chip_ADC_SetStartMode(LPC_ADC, ADC_START_NOW, ADC_TRIGGERMODE_RISING);
-			while (Chip_ADC_ReadStatus(LPC_ADC, ADC_CH5, ADC_DR_DONE_STAT) != SET) {}
-			Chip_ADC_ReadValue(LPC_ADC, ADC_CH5, &value);
-			
-			avg_buf[(avg_pos++)&0xF] = (uint32_t(value) * 4800) / 1024;
-			uint32_t avg = 0;
-			for (uint32_t c=0; c<16; c++) {
-				avg += avg_buf[c];
-			}
-			sprintf(frame_str, "l:%06d", avg / 16);
-			sdd1306.PlaceAsciiStr(0,3,frame_str);
-
-			sdd1306.Display();
-		}
-		
-		static uint32_t prompt = 0;
-		/* Check if host has connected and opened the VCOM port */
-		if ((vcom_connected() != 0) && (prompt == 0)) {
-			vcom_write((const uint8_t *)"Hello World!!\r\n", 15);
-			prompt = 1;
-		}
-		/* If VCOM port is opened echo whatever we receive back to host. */
-		if (prompt) {
-			uint32_t rdCnt = vcom_bread(&g_rxBuff[0], 256);
-			if (rdCnt) {
-				vcom_write(&g_rxBuff[0], rdCnt);
-			}
+			ui.DisplayStatus();
 		}
 
-		return test_button();
+		return break_effect();
 	}
 
 	void color_ring() {
@@ -3899,7 +3955,7 @@ static void advance_mode(uint32_t mode) {
 				leds.set_bird(d, settings.bird_color);
 			}
 
-			if (post_frame(  5)) {
+			if (post_frame(5)) {
 				return;
 			}
 		}
@@ -3927,7 +3983,7 @@ static void advance_mode(uint32_t mode) {
 				leds.set_bird(d, settings.bird_color);
 			}
 
-			if (post_frame(   5)) {
+			if (post_frame(5)) {
 				return;
 			}
 		}
@@ -3964,7 +4020,7 @@ static void advance_mode(uint32_t mode) {
 				rgb_walk = 0;
 			}
 
-			if (post_frame( 5)) {
+			if (post_frame(5)) {
 				return;
 			}
 		}
@@ -3988,7 +4044,7 @@ static void advance_mode(uint32_t mode) {
 				leds.set_bird(d, settings.bird_color);
 			}
 
-			if (post_frame(   50)) {
+			if (post_frame(50)) {
 				return;
 			}
 		}
@@ -4027,7 +4083,7 @@ static void advance_mode(uint32_t mode) {
 				walk += switch_dir;
 			}
 
-			if (post_frame(   50)) {
+			if (post_frame(50)) {
 				return;
 			}
 		}
@@ -4059,7 +4115,7 @@ static void advance_mode(uint32_t mode) {
 				leds.set_bird(d, settings.bird_color);
 			}
 
-			if (post_frame(   100)) {
+			if (post_frame(100)) {
 				return;
 			}
 		}
@@ -4094,7 +4150,7 @@ static void advance_mode(uint32_t mode) {
 				walk += switch_dir;
 			}
 
-			if (post_frame(   50)) {
+			if (post_frame(50)) {
 				return;
 			}
 		}
@@ -4133,7 +4189,7 @@ static void advance_mode(uint32_t mode) {
 				walk += switch_dir;
 			}
 
-			if (post_frame(   50)) {
+			if (post_frame(50)) {
 				return;
 			}
 		}
@@ -4215,7 +4271,7 @@ static void advance_mode(uint32_t mode) {
 				walk += switch_dir;
 			}
 
-			if (post_frame(   50)) {
+			if (post_frame(50)) {
 				return;
 			}
 		}
@@ -4249,7 +4305,7 @@ static void advance_mode(uint32_t mode) {
 				leds.set_bird(d, settings.bird_color);
 			}
 
-			if (post_frame(   40)) {
+			if (post_frame(40)) {
 				return;
 			}
 		}
@@ -4296,7 +4352,7 @@ static void advance_mode(uint32_t mode) {
 				leds.set_bird(d, settings.bird_color);
 			}
 
-			if (post_frame(   80)) {
+			if (post_frame(80)) {
 				return;
 			}
 		}
@@ -4350,7 +4406,7 @@ static void advance_mode(uint32_t mode) {
 				leds.set_bird(d, settings.bird_color);
 			}
 
-			if (post_frame(   80)) {
+			if (post_frame(80)) {
 				return;
 			}
 		}
@@ -4384,7 +4440,7 @@ static void advance_mode(uint32_t mode) {
 				leds.set_bird(d, settings.bird_color);
 			}
 
-			if (post_frame(   40)) {
+			if (post_frame(40)) {
 				return;
 			}
 		}
@@ -4404,7 +4460,7 @@ static void advance_mode(uint32_t mode) {
 				leds.set_bird(d, settings.bird_color);
 			}
 
-			if (post_frame(   10)) {
+			if (post_frame(10)) {
 				return;
 			}
 		}
@@ -4424,7 +4480,7 @@ static void advance_mode(uint32_t mode) {
 				leds.set_bird(d, settings.bird_color);
 			}
 
-			if (post_frame(   50)) {
+			if (post_frame(50)) {
 				return;
 			}
 		}
@@ -4444,7 +4500,7 @@ static void advance_mode(uint32_t mode) {
 				leds.set_bird(d, settings.bird_color);
 			}
 
-			if (post_frame(   10)) {
+			if (post_frame(10)) {
 				return;
 			}
 		}
@@ -4474,7 +4530,7 @@ static void advance_mode(uint32_t mode) {
 				switch_dir *= -1;
 			}
 
-			if (post_frame(   8)) {
+			if (post_frame(8)) {
 				return;
 			}
 		}
@@ -4534,7 +4590,7 @@ static void advance_mode(uint32_t mode) {
 				}
 			}
 
-			if (post_frame(   10)) {
+			if (post_frame(10)) {
 				return;
 			}
 		}
@@ -4612,7 +4668,7 @@ static void advance_mode(uint32_t mode) {
 				}
 			}
 
-			if (post_frame(   20)) {
+			if (post_frame(20)) {
 				return;
 			}
 		}
@@ -4682,7 +4738,7 @@ static void advance_mode(uint32_t mode) {
 				}
 			}
 
-			if (post_frame(   50)) {
+			if (post_frame(50)) {
 				return;
 			}
 		}
@@ -4734,7 +4790,7 @@ static void advance_mode(uint32_t mode) {
 				leds.set_bird(d, settings.bird_color);
 			}
 
-			if (post_frame(   15)) {
+			if (post_frame(15)) {
 				return;
 			}
 		}
@@ -4788,7 +4844,7 @@ static void advance_mode(uint32_t mode) {
 						 		 b);
 			}
 
-			if (post_frame(   15)) {
+			if (post_frame(15)) {
 				return;
 			}
 		}
@@ -4814,7 +4870,7 @@ static void advance_mode(uint32_t mode) {
 				leds.set_bird(d, settings.bird_color);
 			}
 
-			if (post_frame(   20)) {
+			if (post_frame(20)) {
 				return;
 			}
 		}
@@ -4890,7 +4946,7 @@ static void advance_mode(uint32_t mode) {
 			if (i0 >= 0) leds.set_ring_synced(i0, 0x40,0x40,0x40);
 			if (i1 >= 0) leds.set_ring_synced(i1, 0x40,0x40,0x40);
 
-			if (post_frame(   5)) {
+			if (post_frame(5)) {
 				return;
 			}
 		}
@@ -4932,7 +4988,7 @@ static void advance_mode(uint32_t mode) {
 
 			}
 
-			if (post_frame(   2)) {
+			if (post_frame(2)) {
 				return;
 			}
 		}
@@ -4974,7 +5030,7 @@ static void advance_mode(uint32_t mode) {
 
 			}
 
-			if (post_frame(   10)) {
+			if (post_frame(10)) {
 				return;
 			}
 		}
@@ -5043,33 +5099,22 @@ static void advance_mode(uint32_t mode) {
 				leds.set_bird(d, b1r, b1g, b1b);
 			}
 
-			if (post_frame(   20)) {
+			if (post_frame(20)) {
 				return;
 			}
 		}
 	}
 };  // class Effects
 
-
-class USBCDC {
-	
-	public:
-	
-			USBCDC() {
-			}
-};
-
 }  // namespace {
 
+static EEPROM *g_settings = 0;
+
 extern "C" {
+	
 	void SysTick_Handler(void)
 	{	
 		system_clock_ms++;
-
-//		if ( (system_clock_ms % 1024) == 0) {
-//			sx1280.SendBuffer();
-//		}
-
 	}
 
 	void TIMER32_0_IRQHandler(void)
@@ -5082,9 +5127,26 @@ extern "C" {
 	
 	void FLEX_INT0_IRQHandler(void)
 	{
-		sx1280.OnDioIrq();
+		//sx1280.OnDioIrq();
+		Chip_PININT_ClearIntStatus(LPC_PININT, PININTCH0);
 	}
 
+	void FLEX_INT1_IRQHandler(void)
+	{
+		if (g_settings) {
+			g_settings->NextEffect();
+		}
+		Chip_PININT_ClearIntStatus(LPC_PININT, PININTCH1);
+	}
+
+	void FLEX_INT2_IRQHandler(void)
+	{
+		if (g_settings) {
+			g_settings->NextBrightness();
+		}
+		Chip_PININT_ClearIntStatus(LPC_PININT, PININTCH2);
+	}
+	
 	void USB_IRQHandler(void)
 	{
 		uint32_t *addr = (uint32_t *) LPC_USB->EPLISTSTART;
@@ -5122,17 +5184,14 @@ int main(void)
 	}
 	
 	EEPROM settings;
+	
+	// For IRQ handlers only
+	g_settings = &settings;
 
 	SPI spi;
 
 	LEDs leds;
-
-	Chip_IOCON_PinMuxSet(LPC_IOCON, 1, 25, IOCON_FUNC0 | IOCON_MODE_PULLUP);
-	Chip_GPIO_SetPinDIRInput(LPC_GPIO, 1, 25);
-
-	Chip_IOCON_PinMuxSet(LPC_IOCON, 0, 1, IOCON_FUNC0 | IOCON_MODE_PULLUP);
-	Chip_GPIO_SetPinDIRInput(LPC_GPIO, 0, 1);
-
+	
 	spi.push_frame(leds, 0, 0);
 
 	if (sdd1306.DevicePresent()) {
@@ -5172,13 +5231,16 @@ int main(void)
 		sdd1306.SetCenterFlip(0);
 	}
 
+	UI ui(settings, sdd1306);
+	ui.Init();
+	
 	Random random(0xCAFFE);
 
 #ifndef NO_FLASH
 //	flash_storage.init();
 #endif  // #ifndef NO_FLASH
 
-	settings.load();
+	settings.Load();
 	
 	SX1280 sx1280;
 	
@@ -5187,7 +5249,7 @@ int main(void)
 	// start 1ms timer
 	SysTick_Config(SystemCoreClock / 1000);
 
-	Effects effects(settings, random, leds, spi, sdd1306);
+	Effects effects(settings, random, leds, spi, sdd1306, ui);
 
 	effects.RunForever();
 	
