@@ -1,7 +1,7 @@
 # Minimal gcc makefile for LPC11U34
 
 # use the arm cross compiler, not std gcc
-TRGT = arm-none-eabi-
+TRGT = /opt/gcc-arm-none-eabi/bin/arm-none-eabi-
 CC = $(TRGT)gcc
 CXX = $(TRGT)g++
 CP = $(TRGT)objcopy

@@ -330,7 +330,7 @@ public:
 		program_count = 27;
 		program_curr = 2;
 		program_change_count = 0;
-		brightness = 15;
+		brightness = 1;
 		bird_color_index = 0;
 		bird_color = rgba(bird_colors[bird_color_index]);
 		ring_color_index = 5;
@@ -353,7 +353,7 @@ public:
 			ring_color == 0UL ||
 			ring_color_index > 16 ||
 			brightness == 0 ||
-			brightness >= 16 ) {
+			brightness >= 8 ) {
 				
 			bird_color_index = 0;
 			bird_color = bird_colors[bird_color_index];
@@ -362,7 +362,7 @@ public:
 			program_count = 27;
 			program_curr = 0;
 			program_change_count = 0;
-			brightness = 15;
+			brightness = 1;
 			Save();
 		}
 		
@@ -396,7 +396,7 @@ public:
 	void NextBrightness() {
 		if (loaded) {
 			brightness ++;
-			brightness &= 0xF;
+			brightness &= 0x7;
 			Save();
 		}
 	}
@@ -2011,7 +2011,7 @@ class SX1280 {
 				
 				WaitOnBusy();
 				
-				delay( 10 );
+				delay( 50 );
 			}
 			
 			void Wakeup() {
@@ -3473,47 +3473,45 @@ public:
 		}
 	}
 	
-	void DisplayBar(uint8_t x, uint8_t y, uint8_t w, uint8_t val) {
-		if (w < 2 || x+w > 8 || y > 4) {
+	void DisplayBar(uint8_t y, uint8_t val, uint8_t range) {
+		if (y >= 4) {
 			return;
 		}
-
-		int32_t adj = ( val * ( w * 2 + 1) ) / 255;
-
-		uint8_t ch = 0;
-		if (adj == 0) { 
-			ch = 0x6B; 
-		}
-		else if (adj == 1) { 
-			ch = 0x6C; 
-		}
-		else { 
-			ch = 0x6D;
-		}
-		sdd1306.PlaceCustomChar(x,y,ch);
-
-		for (int32_t xx=0; xx<w; xx++) {
-			if (xx == 0 || xx == w-1) continue;
-			if (adj > xx*2 + 1) {
-				ch = 0x70;
-			} else if (adj > xx*2 ) {
-				ch = 0x6F;
-			} else {
-				ch = 0x6E;
+		if (range == 0) {
+			const uint8_t val_to_chr[7*8] = {
+				0x6B, 0x6E, 0x6E, 0x6E, 0x6E, 0x6E, 0x71,
+				0x6D, 0x6E, 0x6E, 0x6E, 0x6E, 0x6E, 0x71,
+				0x6D, 0x70, 0x6E, 0x6E, 0x6E, 0x6E, 0x71,
+				0x6D, 0x70, 0x70, 0x6E, 0x6E, 0x6E, 0x71,
+				0x6D, 0x70, 0x70, 0x70, 0x6E, 0x6E, 0x71,
+				0x6D, 0x70, 0x70, 0x70, 0x70, 0x6E, 0x71,
+				0x6D, 0x70, 0x70, 0x70, 0x70, 0x70, 0x71,
+				0x6D, 0x70, 0x70, 0x70, 0x70, 0x70, 0x73,
+			};
+			for (uint32_t c=0; c<7; c++) {
+				sdd1306.PlaceCustomChar(c+1,y,val_to_chr[val*7+c]);
 			}
-			sdd1306.PlaceCustomChar(x+xx,y,ch);
+		} else {
+			const uint8_t val_to_chr[7*14] = {
+				0x6B, 0x6E, 0x6E, 0x6E, 0x6E, 0x6E, 0x71,
+				0x6C, 0x6E, 0x6E, 0x6E, 0x6E, 0x6E, 0x71,
+				0x6D, 0x6F, 0x6E, 0x6E, 0x6E, 0x6E, 0x71,
+				0x6D, 0x70, 0x6E, 0x6E, 0x6E, 0x6E, 0x71,
+				0x6D, 0x70, 0x70, 0x6E, 0x6E, 0x6E, 0x71,
+				0x6D, 0x70, 0x70, 0x6E, 0x6E, 0x6E, 0x71,
+				0x6D, 0x70, 0x70, 0x6F, 0x6E, 0x6E, 0x71,
+				0x6D, 0x70, 0x70, 0x70, 0x6E, 0x6E, 0x71,
+				0x6D, 0x70, 0x70, 0x70, 0x6F, 0x6E, 0x71,
+				0x6D, 0x70, 0x70, 0x70, 0x70, 0x6E, 0x71,
+				0x6D, 0x70, 0x70, 0x70, 0x70, 0x6F, 0x71,
+				0x6D, 0x70, 0x70, 0x70, 0x70, 0x70, 0x71,
+				0x6D, 0x70, 0x70, 0x70, 0x70, 0x70, 0x72,
+				0x6D, 0x70, 0x70, 0x70, 0x70, 0x70, 0x73,
+			};
+			for (uint32_t c=0; c<7; c++) {
+				sdd1306.PlaceCustomChar(c+1,y,val_to_chr[val*7+c]);
+			}
 		}
-		
-		if (adj > (w-1) * 2 + 1) { 
-			ch = 0x73; 
-		}
-		else if (adj > (w-1) * 2 ) { 
-			ch = 0x72; 
-		}
-		else {
-			ch = 0x71;
-		}
-		sdd1306.PlaceCustomChar(x+w-1,y,ch);
 	}
 	
 	uint8_t NormBatteryChargeForBar() {
@@ -3548,9 +3546,9 @@ public:
 		sdd1306.PlaceCustomChar(6,0,0xAF);
 		sdd1306.PlaceCustomChar(7,0,0xA0+(system_clock_ms/0x400)%8);
 		sdd1306.PlaceCustomChar(0,1,0x65);
-		DisplayBar(1,1,7,uint8_t(settings.brightness*15));
+		DisplayBar(1,uint8_t(settings.brightness), 0);
 		sdd1306.PlaceCustomChar(0,2,0x66);
-		DisplayBar(1,2,7,NormBatteryChargeForBar());
+		DisplayBar(2,(NormBatteryChargeForBar() * 14 / 255), 1);
 		sdd1306.PlaceCustomChar(0,3,0x67);
 		char str[8];
 		sprintf(str,"[%02d/%02d]",settings.program_curr,settings.program_count);
@@ -4910,7 +4908,7 @@ extern "C" {
 	{	
 		system_clock_ms++;
 		
-		if ( (system_clock_ms % (1024*64)) == 0) {
+		if ( (system_clock_ms % (1024*32)) == 0) {
 			g_ui->SetMode(system_clock_ms, 1);
 		}
 		
@@ -4966,6 +4964,8 @@ int main(void)
 		bq24295.SetChipThermalRegulationThreshold(80);
 		bq24295.SetBoostVoltage(5000);
 	}
+	
+	delay(50);
 	
 	EEPROM settings;
 	
