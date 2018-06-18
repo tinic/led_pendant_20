@@ -8,6 +8,8 @@
 #include "gpiogroup_11xx.h"
 #include "ssp_11xx.h"
 #include "printf.h"
+#include "usbd_rom_api.h"
+
 
 #include "duck_font.h"
 
@@ -23,6 +25,478 @@
 
 #define NO_FLASH
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
+const uint8_t USB_DeviceDescriptor[] = {
+	USB_DEVICE_DESC_SIZE,				/* bLength */
+	USB_DEVICE_DESCRIPTOR_TYPE,			/* bDescriptorType */
+	WBVAL(0x0200),						/* bcdUSB */
+	0xEF,								/* bDeviceClass */
+	0x02,								/* bDeviceSubClass */
+	0x01,								/* bDeviceProtocol */
+	USB_MAX_PACKET0,					/* bMaxPacketSize0 */
+	WBVAL(0x1FC9),						/* idVendor */
+	WBVAL(0x0083),						/* idProduct */
+	WBVAL(0x0100),						/* bcdDevice */
+	0x01,								/* iManufacturer */
+	0x02,								/* iProduct */
+	0x03,								/* iSerialNumber */
+	0x01								/* bNumConfigurations */
+};
+
+uint8_t USB_FsConfigDescriptor[] = {
+	/* Configuration 1 */
+	USB_CONFIGURATION_DESC_SIZE,			/* bLength */
+	USB_CONFIGURATION_DESCRIPTOR_TYPE,		/* bDescriptorType */
+	WBVAL(									/* wTotalLength */
+		USB_CONFIGURATION_DESC_SIZE     +
+		USB_INTERFACE_ASSOC_DESC_SIZE   +	/* interface association descriptor */
+		USB_INTERFACE_DESC_SIZE         +	/* communication control interface */
+		0x0013                          +	/* CDC functions */
+		1 * USB_ENDPOINT_DESC_SIZE      +	/* interrupt endpoint */
+		USB_INTERFACE_DESC_SIZE         +	/* communication data interface */
+		2 * USB_ENDPOINT_DESC_SIZE      +	/* bulk endpoints */
+		0
+		),
+	0x02,									/* bNumInterfaces */
+	0x01,									/* bConfigurationValue */
+	0x00,									/* iConfiguration */
+	USB_CONFIG_SELF_POWERED,				/* bmAttributes  */
+	USB_CONFIG_POWER_MA(500),				/* bMaxPower */
+
+	/* Interface association descriptor IAD*/
+	USB_INTERFACE_ASSOC_DESC_SIZE,		/* bLength */
+	USB_INTERFACE_ASSOCIATION_DESCRIPTOR_TYPE,	/* bDescriptorType */
+	USB_CDC_CIF_NUM,					/* bFirstInterface */
+	0x02,								/* bInterfaceCount */
+	CDC_COMMUNICATION_INTERFACE_CLASS,	/* bFunctionClass */
+	CDC_ABSTRACT_CONTROL_MODEL,			/* bFunctionSubClass */
+	0x00,								/* bFunctionProtocol */
+	0x04,								/* iFunction */
+
+	/* Interface 0, Alternate Setting 0, Communication class interface descriptor */
+	USB_INTERFACE_DESC_SIZE,			/* bLength */
+	USB_INTERFACE_DESCRIPTOR_TYPE,		/* bDescriptorType */
+	USB_CDC_CIF_NUM,					/* bInterfaceNumber: Number of Interface */
+	0x00,								/* bAlternateSetting: Alternate setting */
+	0x01,								/* bNumEndpoints: One endpoint used */
+	CDC_COMMUNICATION_INTERFACE_CLASS,	/* bInterfaceClass: Communication Interface Class */
+	CDC_ABSTRACT_CONTROL_MODEL,			/* bInterfaceSubClass: Abstract Control Model */
+	0x00,								/* bInterfaceProtocol: no protocol used */
+	0x04,								/* iInterface: */
+	/* Header Functional Descriptor*/
+	0x05,								/* bLength: CDC header Descriptor size */
+	CDC_CS_INTERFACE,					/* bDescriptorType: CS_INTERFACE */
+	CDC_HEADER,							/* bDescriptorSubtype: Header Func Desc */
+	WBVAL(CDC_V1_10),					/* bcdCDC 1.10 */
+	/* Call Management Functional Descriptor*/
+	0x05,								/* bFunctionLength */
+	CDC_CS_INTERFACE,					/* bDescriptorType: CS_INTERFACE */
+	CDC_CALL_MANAGEMENT,				/* bDescriptorSubtype: Call Management Func Desc */
+	0x01,								/* bmCapabilities: device handles call management */
+	USB_CDC_DIF_NUM,					/* bDataInterface: CDC data IF ID */
+	/* Abstract Control Management Functional Descriptor*/
+	0x04,								/* bFunctionLength */
+	CDC_CS_INTERFACE,					/* bDescriptorType: CS_INTERFACE */
+	CDC_ABSTRACT_CONTROL_MANAGEMENT,	/* bDescriptorSubtype: Abstract Control Management desc */
+	0x02,								/* bmCapabilities: SET_LINE_CODING, GET_LINE_CODING, SET_CONTROL_LINE_STATE supported */
+	/* Union Functional Descriptor*/
+	0x05,								/* bFunctionLength */
+	CDC_CS_INTERFACE,					/* bDescriptorType: CS_INTERFACE */
+	CDC_UNION,							/* bDescriptorSubtype: Union func desc */
+	USB_CDC_CIF_NUM,					/* bMasterInterface: Communication class interface is master */
+	USB_CDC_DIF_NUM,					/* bSlaveInterface0: Data class interface is slave 0 */
+	/* Endpoint 1 Descriptor*/
+	USB_ENDPOINT_DESC_SIZE,				/* bLength */
+	USB_ENDPOINT_DESCRIPTOR_TYPE,		/* bDescriptorType */
+	USB_CDC_INT_EP,						/* bEndpointAddress */
+	USB_ENDPOINT_TYPE_INTERRUPT,		/* bmAttributes */
+	WBVAL(0x0010),						/* wMaxPacketSize */
+	0x02,			/* 2ms */           /* bInterval */
+
+	/* Interface 1, Alternate Setting 0, Data class interface descriptor*/
+	USB_INTERFACE_DESC_SIZE,			/* bLength */
+	USB_INTERFACE_DESCRIPTOR_TYPE,		/* bDescriptorType */
+	USB_CDC_DIF_NUM,					/* bInterfaceNumber: Number of Interface */
+	0x00,								/* bAlternateSetting: no alternate setting */
+	0x02,								/* bNumEndpoints: two endpoints used */
+	CDC_DATA_INTERFACE_CLASS,			/* bInterfaceClass: Data Interface Class */
+	0x00,								/* bInterfaceSubClass: no subclass available */
+	0x00,								/* bInterfaceProtocol: no protocol used */
+	0x04,								/* iInterface: */
+	/* Endpoint, EP Bulk Out */
+	USB_ENDPOINT_DESC_SIZE,				/* bLength */
+	USB_ENDPOINT_DESCRIPTOR_TYPE,		/* bDescriptorType */
+	USB_CDC_OUT_EP,						/* bEndpointAddress */
+	USB_ENDPOINT_TYPE_BULK,				/* bmAttributes */
+	WBVAL(USB_FS_MAX_BULK_PACKET),		/* wMaxPacketSize */
+	0x00,								/* bInterval: ignore for Bulk transfer */
+	/* Endpoint, EP Bulk In */
+	USB_ENDPOINT_DESC_SIZE,				/* bLength */
+	USB_ENDPOINT_DESCRIPTOR_TYPE,		/* bDescriptorType */
+	USB_CDC_IN_EP,						/* bEndpointAddress */
+	USB_ENDPOINT_TYPE_BULK,				/* bmAttributes */
+	WBVAL(64),							/* wMaxPacketSize */
+	0x00,								/* bInterval: ignore for Bulk transfer */
+	/* Terminator */
+	0									/* bLength */
+};
+
+/**
+ * USB String Descriptor (optional)
+ */
+const uint8_t USB_StringDescriptor[] = {
+	/* Index 0x00: LANGID Codes */
+	0x04,								/* bLength */
+	USB_STRING_DESCRIPTOR_TYPE,			/* bDescriptorType */
+	WBVAL(0x0409),	/* US English */    /* wLANGID */
+	/* Index 0x01: Manufacturer */
+	(3 * 2 + 2),						/* bLength (13 Char + Type + lenght) */
+	USB_STRING_DESCRIPTOR_TYPE,			/* bDescriptorType */
+	'N', 0,
+	'X', 0,
+	'P', 0,
+	/* Index 0x02: Product */
+	(9 * 2 + 2),						/* bLength */
+	USB_STRING_DESCRIPTOR_TYPE,			/* bDescriptorType */
+	'V', 0,
+	'C', 0,
+	'O', 0,
+	'M', 0,
+	' ', 0,
+	'P', 0,
+	'o', 0,
+	'r', 0,
+	't', 0,
+	/* Index 0x03: Serial Number */
+	(6 * 2 + 2),						/* bLength (8 Char + Type + lenght) */
+	USB_STRING_DESCRIPTOR_TYPE,			/* bDescriptorType */
+	'N', 0,
+	'X', 0,
+	'P', 0,
+	'-', 0,
+	'7', 0,
+	'7', 0,
+	/* Index 0x04: Interface 1, Alternate Setting 0 */
+	( 4 * 2 + 2),						/* bLength (4 Char + Type + lenght) */
+	USB_STRING_DESCRIPTOR_TYPE,			/* bDescriptorType */
+	'V', 0,
+	'C', 0,
+	'O', 0,
+	'M', 0,
+};
+
+
+#ifdef __cplusplus
+}
+#endif
+
+
+#define VCOM_RX_BUF_SZ      512
+#define VCOM_TX_CONNECTED   _BIT(8)		/* connection state is for both RX/Tx */
+#define VCOM_TX_BUSY        _BIT(0)
+#define VCOM_RX_DONE        _BIT(0)
+#define VCOM_RX_BUF_FULL    _BIT(1)
+#define VCOM_RX_BUF_QUEUED  _BIT(2)
+#define VCOM_RX_DB_QUEUED   _BIT(3)
+
+typedef struct VCOM_DATA {
+	USBD_HANDLE_T hUsb;
+	USBD_HANDLE_T hCdc;
+	uint8_t *rx_buff;
+	uint16_t rx_rd_count;
+	uint16_t rx_count;
+	volatile uint16_t tx_flags;
+	volatile uint16_t rx_flags;
+} VCOM_DATA_T;
+
+VCOM_DATA_T g_vCOM;
+
+/* VCOM bulk EP_IN endpoint handler */
+static ErrorCode_t VCOM_bulk_in_hdlr(USBD_HANDLE_T hUsb, void *data, uint32_t event)
+{
+	VCOM_DATA_T *pVcom = (VCOM_DATA_T *) data;
+
+	if (event == USB_EVT_IN) {
+		pVcom->tx_flags &= ~VCOM_TX_BUSY;
+	}
+	return LPC_OK;
+}
+
+/* VCOM bulk EP_OUT endpoint handler */
+static ErrorCode_t VCOM_bulk_out_hdlr(USBD_HANDLE_T hUsb, void *data, uint32_t event)
+{
+	VCOM_DATA_T *pVcom = (VCOM_DATA_T *) data;
+
+	switch (event) {
+	case USB_EVT_OUT:
+		pVcom->rx_count = USBD_API->hw->ReadEP(hUsb, USB_CDC_OUT_EP, pVcom->rx_buff);
+		if (pVcom->rx_flags & VCOM_RX_BUF_QUEUED) {
+			pVcom->rx_flags &= ~VCOM_RX_BUF_QUEUED;
+			if (pVcom->rx_count != 0) {
+				pVcom->rx_flags |= VCOM_RX_BUF_FULL;
+			}
+
+		}
+		else if (pVcom->rx_flags & VCOM_RX_DB_QUEUED) {
+			pVcom->rx_flags &= ~VCOM_RX_DB_QUEUED;
+			pVcom->rx_flags |= VCOM_RX_DONE;
+		}
+		break;
+
+	case USB_EVT_OUT_NAK:
+		/* queue free buffer for RX */
+		if ((pVcom->rx_flags & (VCOM_RX_BUF_FULL | VCOM_RX_BUF_QUEUED)) == 0) {
+			USBD_API->hw->ReadReqEP(hUsb, USB_CDC_OUT_EP, pVcom->rx_buff, VCOM_RX_BUF_SZ);
+			pVcom->rx_flags |= VCOM_RX_BUF_QUEUED;
+		}
+		break;
+
+	default:
+		break;
+	}
+
+	return LPC_OK;
+}
+
+/* Set line coding call back routine */
+static ErrorCode_t VCOM_SetLineCode(USBD_HANDLE_T hCDC, CDC_LINE_CODING *line_coding)
+{
+	VCOM_DATA_T *pVcom = &g_vCOM;
+
+	/* Called when baud rate is changed/set. Using it to know host connection state */
+	pVcom->tx_flags = VCOM_TX_CONNECTED;	/* reset other flags */
+
+	return LPC_OK;
+}
+
+/* Virtual com port init routine */
+ErrorCode_t vcom_init(USBD_HANDLE_T hUsb, USB_CORE_DESCS_T *pDesc, USBD_API_INIT_PARAM_T *pUsbParam)
+{
+	USBD_CDC_INIT_PARAM_T cdc_param;
+	ErrorCode_t ret = LPC_OK;
+	uint32_t ep_indx;
+
+	g_vCOM.hUsb = hUsb;
+	memset((void *) &cdc_param, 0, sizeof(USBD_CDC_INIT_PARAM_T));
+	cdc_param.mem_base = pUsbParam->mem_base;
+	cdc_param.mem_size = pUsbParam->mem_size;
+	cdc_param.cif_intf_desc = (uint8_t *) find_IntfDesc(pDesc->high_speed_desc, CDC_COMMUNICATION_INTERFACE_CLASS);
+	cdc_param.dif_intf_desc = (uint8_t *) find_IntfDesc(pDesc->high_speed_desc, CDC_DATA_INTERFACE_CLASS);
+	cdc_param.SetLineCode = VCOM_SetLineCode;
+
+	ret = USBD_API->cdc->init(hUsb, &cdc_param, &g_vCOM.hCdc);
+
+	if (ret == LPC_OK) {
+		/* allocate transfer buffers */
+		g_vCOM.rx_buff = (uint8_t *) cdc_param.mem_base;
+		cdc_param.mem_base += VCOM_RX_BUF_SZ;
+		cdc_param.mem_size -= VCOM_RX_BUF_SZ;
+
+		/* register endpoint interrupt handler */
+		ep_indx = (((USB_CDC_IN_EP & 0x0F) << 1) + 1);
+		ret = USBD_API->core->RegisterEpHandler(hUsb, ep_indx, VCOM_bulk_in_hdlr, &g_vCOM);
+		if (ret == LPC_OK) {
+			/* register endpoint interrupt handler */
+			ep_indx = ((USB_CDC_OUT_EP & 0x0F) << 1);
+			ret = USBD_API->core->RegisterEpHandler(hUsb, ep_indx, VCOM_bulk_out_hdlr, &g_vCOM);
+
+		}
+		/* update mem_base and size variables for cascading calls. */
+		pUsbParam->mem_base = cdc_param.mem_base;
+		pUsbParam->mem_size = cdc_param.mem_size;
+	}
+
+	return ret;
+}
+
+static INLINE uint32_t vcom_connected(void) {
+	return g_vCOM.tx_flags & VCOM_TX_CONNECTED;
+}
+
+/* Virtual com port buffered read routine */
+uint32_t vcom_bread(uint8_t *pBuf, uint32_t buf_len)
+{
+	VCOM_DATA_T *pVcom = &g_vCOM;
+	uint16_t cnt = 0;
+	/* read from the default buffer if any data present */
+	if (pVcom->rx_count) {
+		cnt = (pVcom->rx_count < buf_len) ? pVcom->rx_count : buf_len;
+		memcpy(pBuf, pVcom->rx_buff, cnt);
+		pVcom->rx_rd_count += cnt;
+
+		/* enter critical section */
+		NVIC_DisableIRQ(USB0_IRQn);
+		if (pVcom->rx_rd_count >= pVcom->rx_count) {
+			pVcom->rx_flags &= ~VCOM_RX_BUF_FULL;
+			pVcom->rx_rd_count = pVcom->rx_count = 0;
+		}
+		/* exit critical section */
+		NVIC_EnableIRQ(USB0_IRQn);
+	}
+	return cnt;
+
+}
+
+/* Virtual com port read routine */
+ErrorCode_t vcom_read_req(uint8_t *pBuf, uint32_t len)
+{
+	VCOM_DATA_T *pVcom = &g_vCOM;
+
+	/* check if we queued Rx buffer */
+	if (pVcom->rx_flags & (VCOM_RX_BUF_QUEUED | VCOM_RX_DB_QUEUED)) {
+		return ERR_BUSY;
+	}
+	/* enter critical section */
+	NVIC_DisableIRQ(USB0_IRQn);
+	/* if not queue the request and return 0 bytes */
+	USBD_API->hw->ReadReqEP(pVcom->hUsb, USB_CDC_OUT_EP, pBuf, len);
+	/* exit critical section */
+	NVIC_EnableIRQ(USB0_IRQn);
+	pVcom->rx_flags |= VCOM_RX_DB_QUEUED;
+
+	return LPC_OK;
+}
+
+/* Gets current read count. */
+uint32_t vcom_read_cnt(void)
+{
+	VCOM_DATA_T *pVcom = &g_vCOM;
+	uint32_t ret = 0;
+
+	if (pVcom->rx_flags & VCOM_RX_DONE) {
+		ret = pVcom->rx_count;
+		pVcom->rx_count = 0;
+	}
+
+	return ret;
+}
+
+/* Virtual com port write routine*/
+uint32_t vcom_write(const uint8_t *pBuf, uint32_t len)
+{
+	VCOM_DATA_T *pVcom = &g_vCOM;
+	uint32_t ret = 0;
+
+	if ( (pVcom->tx_flags & VCOM_TX_CONNECTED) && ((pVcom->tx_flags & VCOM_TX_BUSY) == 0) ) {
+		pVcom->tx_flags |= VCOM_TX_BUSY;
+
+		/* enter critical section */
+		NVIC_DisableIRQ(USB0_IRQn);
+		ret = USBD_API->hw->WriteEP(pVcom->hUsb, USB_CDC_IN_EP, pBuf, len);
+		/* exit critical section */
+		NVIC_EnableIRQ(USB0_IRQn);
+	}
+
+	return ret;
+}
+
+static USBD_HANDLE_T g_hUsb;
+static uint8_t g_rxBuff[256];
+const  USBD_API_T *g_pUsbApi;
+
+/* Initialize pin and clocks for USB0/USB1 port */
+static void usb_pin_clk_init(void)
+{
+	/* enable USB main clock */
+	Chip_Clock_SetUSBClockSource(SYSCTL_USBCLKSRC_PLLOUT, 1);
+	/* Enable AHB clock to the USB block and USB RAM. */
+	Chip_Clock_EnablePeriphClock(SYSCTL_CLOCK_USB);
+//	Chip_Clock_EnablePeriphClock(SYSCTL_CLOCK_USBRAM);
+	/* power UP USB Phy */
+	Chip_SYSCTL_PowerUp(SYSCTL_POWERDOWN_USBPAD_PD);
+}
+
+/* Find the address of interface descriptor for given class type. */
+USB_INTERFACE_DESCRIPTOR *find_IntfDesc(const uint8_t *pDesc, uint32_t intfClass)
+{
+	USB_COMMON_DESCRIPTOR *pD;
+	USB_INTERFACE_DESCRIPTOR *pIntfDesc = 0;
+	uint32_t next_desc_adr;
+
+	pD = (USB_COMMON_DESCRIPTOR *) pDesc;
+	next_desc_adr = (uint32_t) pDesc;
+
+	while (pD->bLength) {
+		/* is it interface descriptor */
+		if (pD->bDescriptorType == USB_INTERFACE_DESCRIPTOR_TYPE) {
+
+			pIntfDesc = (USB_INTERFACE_DESCRIPTOR *) pD;
+			/* did we find the right interface descriptor */
+			if (pIntfDesc->bInterfaceClass == intfClass) {
+				break;
+			}
+		}
+		pIntfDesc = 0;
+		next_desc_adr = (uint32_t) pD + pD->bLength;
+		pD = (USB_COMMON_DESCRIPTOR *) next_desc_adr;
+	}
+
+	return pIntfDesc;
+}
+
+
+static int usb_init()
+{
+	USBD_API_INIT_PARAM_T usb_param;
+	USB_CORE_DESCS_T desc;
+	ErrorCode_t ret = LPC_OK;
+	
+	/* enable clocks and pinmux */
+	usb_pin_clk_init();
+
+	/* initialize USBD ROM API pointer. */
+	g_pUsbApi = (const USBD_API_T *) LPC_ROM_API->usbdApiBase;
+	
+	/* initialize call back structures */
+	memset((void *) &usb_param, 0, sizeof(USBD_API_INIT_PARAM_T));
+	usb_param.usb_reg_base = LPC_USB0_BASE;
+	/*	WORKAROUND for artf44835 ROM driver BUG:
+	    Code clearing STALL bits in endpoint reset routine corrupts memory area
+	    next to the endpoint control data. For example When EP0, EP1_IN, EP1_OUT,
+	    EP2_IN are used we need to specify 3 here. But as a workaround for this
+	    issue specify 4. So that extra EPs control structure acts as padding buffer
+	    to avoid data corruption. Corruption of padding memory doesn’t affect the
+	    stack/program behaviour.
+	 */
+	usb_param.max_num_ep = 3 + 1;
+	usb_param.mem_base = USB_STACK_MEM_BASE;
+	usb_param.mem_size = USB_STACK_MEM_SIZE;
+
+	/* Set the USB descriptors */
+	desc.device_desc = (uint8_t *) &USB_DeviceDescriptor[0];
+	desc.string_desc = (uint8_t *) &USB_StringDescriptor[0];
+	/* Note, to pass USBCV test full-speed only devices should have both
+	   descriptor arrays point to same location and device_qualifier set to 0.
+	 */
+	desc.high_speed_desc = (uint8_t *) &USB_FsConfigDescriptor[0];
+	desc.full_speed_desc = (uint8_t *) &USB_FsConfigDescriptor[0];
+	desc.device_qualifier = 0;
+
+	/* USB Initialization */
+	ret = USBD_API->hw->Init(&g_hUsb, &desc, &usb_param);
+
+	if (ret == LPC_OK) {
+		/*	WORKAROUND for artf32219 ROM driver BUG:
+		    The mem_base parameter part of USB_param structure returned
+		    by Init() routine is not accurate causing memory allocation issues for
+		    further components.
+		 */
+		usb_param.mem_base = USB_STACK_MEM_BASE + (USB_STACK_MEM_SIZE - usb_param.mem_size);
+		/* Init VCOM interface */
+		ret = vcom_init(g_hUsb, &desc, &usb_param);
+		if (ret == LPC_OK) 
+		{
+			/*  enable USB interrupts */
+			NVIC_EnableIRQ(USB0_IRQn);
+			/* now connect */
+			USBD_API->hw->Connect(g_hUsb, 1);
+		}
+	}
+}
 
 namespace std {
     void __throw_bad_function_call() { for(;;) {} }
@@ -1112,7 +1586,7 @@ class Setup {
                 
                 // 1s watchdog timer
                 Chip_WWDT_SelClockSource(LPC_WWDT, WWDT_CLKSRC_WATCHDOG_WDOSC);
-                Chip_WWDT_SetTimeOut(LPC_WWDT, Chip_Clock_GetWDTOSCRate() / 4);
+                Chip_WWDT_SetTimeOut(LPC_WWDT, 4 * Chip_Clock_GetWDTOSCRate() / 4);
                 Chip_WWDT_SetOption(LPC_WWDT, WWDT_WDMOD_WDRESET);
                 Chip_WWDT_ClearStatusFlag(LPC_WWDT, WWDT_WDMOD_WDTOF | WWDT_WDMOD_WDINT);
 
@@ -1857,23 +2331,19 @@ class SX1280 {
 			const uint32_t DIO1_PIN = 0x0006; // 0_6
 			const uint32_t RESET_PIN = 0x011C; // 1_28
 			
-			const uint32_t UART_TXD = 0x010D; // 1_13
-			const uint32_t UART_RXD = 0x010E; // 1_14
-			const uint32_t UART_CTS = 0x0007; // 0_7
-			const uint32_t UART_RTS = 0x0011; // 0_17
+			const uint32_t SPI_MOSI = 0x010D; // 1_13
+			const uint32_t SPI_MISO = 0x010E; // 1_14
+			const uint32_t SPI_SCLK = 0x0007; // 0_7
+			const uint32_t SPI_CSEL = 0x0011; // 0_17
 			
-			const IRQn_Type INT_IRQn = PIN_INT0_IRQn;
-			const uint32_t INT_NUM = 0;
-			const uint32_t INT_CHN = PININTCH0;
-			
-			const uint32_t LORA_BUFFER_SIZE = 30;
-			uint8_t txBuffer[30] = { 0 };
-			uint8_t rxBuffer[30] = { 0 };
+			const uint32_t LORA_BUFFER_SIZE = 16;
+			uint8_t txBuffer[16] = { 0 };
+			uint8_t rxBuffer[16] = { 0 };
 			
 			const uint32_t RF_FREQUENCY = 2425000000UL;
 			const uint32_t TX_OUTPUT_POWER = 13;
 
-			const uint16_t TX_TIMEOUT_VALUE = 100; // ms
+			const uint16_t TX_TIMEOUT_VALUE = 1000; // ms
 			const uint16_t RX_TIMEOUT_VALUE = 0xffff; // ms
 			const RadioTickSizes RX_TIMEOUT_TICK_SIZE = RADIO_TICK_SIZE_1000_US;
 
@@ -1886,11 +2356,12 @@ class SX1280 {
 			const uint32_t DEFAULT_RANGING_FILTER_SIZE = 0x7F;
 			const uint32_t MASK_FORCE_PREAMBLELENGTH = 0x8F;
 			const uint32_t BLE_ADVERTIZER_ACCESS_ADDRESS = 0x8E89BED6;
+			
+			SDD1306 *sdd1306;
 
 			SX1280() { }
 			
-			void Init(SDD1306 &sdd1306, bool pollMode) {
-
+			void Init(SDD1306 &_sdd1306, bool pollMode) {
 				// Configure control pins
 				Chip_IOCON_PinMuxSet(LPC_IOCON, (RESET_PIN>>8), (RESET_PIN&0xFF), IOCON_FUNC0 | IOCON_MODE_PULLUP);
 				Chip_GPIO_SetPinDIROutput(LPC_GPIO, (RESET_PIN>>8), (RESET_PIN&0xFF));
@@ -1901,62 +2372,36 @@ class SX1280 {
 				Chip_IOCON_PinMuxSet(LPC_IOCON, (DIO1_PIN>>8), (DIO1_PIN&0xFF), IOCON_FUNC0 | IOCON_MODE_INACT);
 				Chip_GPIO_SetPinDIRInput(LPC_GPIO, (DIO1_PIN>>8), (DIO1_PIN&0xFF));
 
-				// Configure UART pins
-				Chip_IOCON_PinMuxSet(LPC_IOCON, (UART_TXD>>8), (UART_TXD&0xFF), IOCON_FUNC3 | IOCON_MODE_INACT);
-				Chip_GPIO_SetPinDIROutput(LPC_GPIO, (UART_TXD>>8), (UART_TXD&0xFF));
+				Chip_IOCON_PinMuxSet(LPC_IOCON, (SPI_MISO>>8), (SPI_MISO&0xFF), IOCON_FUNC0 | IOCON_MODE_INACT);
+				Chip_GPIO_SetPinDIRInput(LPC_GPIO, (SPI_MISO>>8), (SPI_MISO&0xFF));
 
-				Chip_IOCON_PinMuxSet(LPC_IOCON, (UART_RXD>>8), (UART_RXD&0xFF), IOCON_FUNC3 | IOCON_MODE_INACT);
-				Chip_GPIO_SetPinDIRInput(LPC_GPIO, (UART_RXD>>8), (UART_RXD&0xFF));
+				Chip_IOCON_PinMuxSet(LPC_IOCON, (SPI_MOSI>>8), (SPI_MOSI&0xFF), IOCON_FUNC0 | IOCON_MODE_INACT);
+				Chip_GPIO_SetPinDIROutput(LPC_GPIO, (SPI_MOSI>>8), (SPI_MOSI&0xFF));
 
-				Chip_IOCON_PinMuxSet(LPC_IOCON, (UART_RTS>>8), (UART_RTS&0xFF), IOCON_FUNC1 | IOCON_MODE_INACT);
-				Chip_GPIO_SetPinDIROutput(LPC_GPIO, (UART_RTS>>8), (UART_RTS&0xFF));
+				Chip_IOCON_PinMuxSet(LPC_IOCON, (SPI_CSEL>>8), (SPI_CSEL&0xFF), IOCON_FUNC0 | IOCON_MODE_INACT);
+				Chip_GPIO_SetPinDIROutput(LPC_GPIO, (SPI_CSEL>>8), (SPI_CSEL&0xFF));
 
-				Chip_IOCON_PinMuxSet(LPC_IOCON, (UART_CTS>>8), (UART_CTS&0xFF), IOCON_FUNC1 | IOCON_MODE_INACT);
-				Chip_GPIO_SetPinDIRInput(LPC_GPIO, (UART_CTS>>8), (UART_CTS&0xFF));
+				Chip_IOCON_PinMuxSet(LPC_IOCON, (SPI_SCLK>>8), (SPI_SCLK&0xFF), IOCON_FUNC0 | IOCON_MODE_INACT);
+				Chip_GPIO_SetPinDIROutput(LPC_GPIO, (SPI_SCLK>>8), (SPI_SCLK&0xFF));
 
-				Chip_UART_Init(LPC_USART);
-				Chip_UART_SetBaud(LPC_USART, 115200);
-				Chip_UART_SetupFIFOS(LPC_USART, (UART_FCR_FIFO_EN | UART_FCR_RX_RS | UART_FCR_TX_RS));
-				Chip_UART_ConfigData(LPC_USART, (UART_LCR_WLEN8 | UART_LCR_SBS_1BIT | UART_LCR_PARITY_EN | UART_LCR_PARITY_EVEN));
-				Chip_UART_SetModemControl(LPC_USART, (UART_MCR_AUTO_RTS_EN | UART_MCR_AUTO_CTS_EN));
-				
-				Chip_UART_TXEnable(LPC_USART);
+				Chip_GPIO_SetPinOutHigh(LPC_GPIO, (SPI_CSEL>>8), (SPI_CSEL&0xFF));
+				Chip_GPIO_SetPinOutLow(LPC_GPIO, (SPI_SCLK>>8), (SPI_SCLK&0xFF));
 				
 				Reset();
 
 				if (!pollMode) {
-					Chip_PININT_SetPinModeEdge(LPC_PININT, INT_CHN);
-					Chip_PININT_EnableIntLow(LPC_PININT, Chip_PININT_GetHighEnabled(LPC_PININT) | INT_CHN);
-					Chip_PININT_EnableIntHigh(LPC_PININT, Chip_PININT_GetLowEnabled(LPC_PININT) | INT_CHN);
+					Chip_IOCON_PinMuxSet(LPC_IOCON, uint8_t(DIO1_PIN>>8), uint8_t(DIO1_PIN&0xFF), IOCON_FUNC0 | IOCON_MODE_PULLUP);
+					Chip_GPIO_SetPinDIRInput(LPC_GPIO, uint8_t(DIO1_PIN>>8), uint8_t(DIO1_PIN&0xFF));
+
+					Chip_PININT_SetPinModeEdge(LPC_PININT, PININTCH0);
+					Chip_PININT_EnableIntLow(LPC_PININT, Chip_PININT_GetHighEnabled(LPC_PININT) | PININTCH0);
+					Chip_PININT_EnableIntHigh(LPC_PININT, Chip_PININT_GetLowEnabled(LPC_PININT) | PININTCH0);
+					Chip_SYSCTL_SetPinInterrupt(0, uint8_t(DIO1_PIN>>8), uint8_t(DIO1_PIN&0xFF));  
 					
-					Chip_SYSCTL_SetPinInterrupt(INT_NUM, uint8_t(DIO1_PIN>>8), uint8_t(DIO1_PIN&0xFF));  
-					
-					NVIC_ClearPendingIRQ(INT_IRQn);  
-					NVIC_EnableIRQ(INT_IRQn);  
+					NVIC_ClearPendingIRQ(PIN_INT0_IRQn);  
+					Chip_PININT_ClearIntStatus(LPC_PININT, PININTCH0);
+					NVIC_EnableIRQ(PIN_INT0_IRQn);  
 				}
-
-				//
-				// Wait for radio to return a standby status.
-				// We seem to get sync issues at the 
-				// beginning of our UART session. Shaky stuff.
-				//
-				// Note that the reference code seems to conflict with
-				// current documentation which says that LSB is default,
-				// which I have confirmed. So not need to set the 'secret'
-				// MSB/LSB register bit.
-				//
-				// The radio should always be in standby RC mode after
-				// a reset.
-				//
-
-				uint32_t reset_counter = 0;
-				do {
-					if (reset_counter++ > 512) {
-						Reset();
-						reset_counter = 0;
-					}
-					putchar( RADIO_GET_STATUS );
-				} while ( getchar( ) != 0x40 );
 
 				Wakeup();
 
@@ -1966,14 +2411,14 @@ class SX1280 {
 				modulationParams.PacketType                  = PACKET_TYPE_LORA;
 				modulationParams.Params.LoRa.SpreadingFactor = LORA_SF5;
 				modulationParams.Params.LoRa.Bandwidth       = LORA_BW_0200;
-				modulationParams.Params.LoRa.CodingRate      = LORA_CR_LI_4_5;
+				modulationParams.Params.LoRa.CodingRate      = LORA_CR_LI_4_7;
 				SetPacketType( modulationParams.PacketType );
 				SetModulationParams( &modulationParams );
 
 				PacketParams PacketParams;
 				PacketParams.PacketType                 	 = PACKET_TYPE_LORA;
 				PacketParams.Params.LoRa.PreambleLength      = 0x0C;
-				PacketParams.Params.LoRa.HeaderType          = LORA_PACKET_IMPLICIT;
+				PacketParams.Params.LoRa.HeaderType          = LORA_PACKET_VARIABLE_LENGTH;
 				PacketParams.Params.LoRa.PayloadLength       = LORA_BUFFER_SIZE;
 				PacketParams.Params.LoRa.Crc                 = LORA_CRC_ON;
 				PacketParams.Params.LoRa.InvertIQ            = LORA_IQ_NORMAL;
@@ -1985,6 +2430,8 @@ class SX1280 {
 				SetDioIrqParams( SX1280::IrqMask, SX1280::IrqMask, IRQ_RADIO_NONE, IRQ_RADIO_NONE );
 				
 		    	SetRx( TickTime { RX_TIMEOUT_TICK_SIZE, RX_TIMEOUT_VALUE } );
+
+				sdd1306 = &_sdd1306;
 			}
 			
 			void SendBuffer() {
@@ -1993,11 +2440,7 @@ class SX1280 {
 			
 			void Reset() {
 				disableIRQ();
-				// Set SCK/RTSM to low during reset
-				Chip_IOCON_PinMuxSet(LPC_IOCON, (UART_RTS>>8), (UART_RTS&0xFF), IOCON_FUNC0 | IOCON_MODE_INACT);
-				Chip_GPIO_SetPinDIROutput(LPC_GPIO, (UART_RTS>>8), (UART_RTS&0xFF));
-				Chip_GPIO_SetPinOutLow(LPC_GPIO, (UART_RTS>>8), (UART_RTS&0xFF));
-
+				
 				delay( 50 );
 				Chip_GPIO_SetPinDIROutput(LPC_GPIO, (RESET_PIN>>8), (RESET_PIN&0xFF));
 				Chip_GPIO_SetPinOutLow(LPC_GPIO, (RESET_PIN>>8), (RESET_PIN&0xFF));
@@ -2006,19 +2449,18 @@ class SX1280 {
 				delay( 50 );
 				enableIRQ();
 
-				Chip_IOCON_PinMuxSet(LPC_IOCON, (UART_RTS>>8), (UART_RTS&0xFF), IOCON_FUNC1 | IOCON_MODE_INACT);
-				Chip_GPIO_SetPinDIROutput(LPC_GPIO, (UART_RTS>>8), (UART_RTS&0xFF));
-				
 				WaitOnBusy();
 				
-				delay( 50 );
+				delay( 10 );
 			}
 			
 			void Wakeup() {
 				disableIRQ();
 
-				putchar( RADIO_GET_STATUS );
-				getchar();
+				Chip_GPIO_SetPinOutLow(LPC_GPIO, (SPI_CSEL>>8), (SPI_CSEL&0xFF));
+				spiwrite(RADIO_GET_STATUS);
+				spiwrite(0);
+				Chip_GPIO_SetPinOutHigh(LPC_GPIO, (SPI_CSEL>>8), (SPI_CSEL&0xFF));
 
 				WaitOnBusy( );
 
@@ -2047,13 +2489,12 @@ class SX1280 {
 			void WriteCommand(RadioCommand command, uint8_t *buffer, uint32_t size) {
 				WaitOnBusy();
 
-				putchar( command );
-				if(size > 0) {
-					putchar( size );
-					for( uint32_t i = 0; i < size; i++ ) {
-						putchar( buffer[i] );
-					}
+				Chip_GPIO_SetPinOutLow(LPC_GPIO, (SPI_CSEL>>8), (SPI_CSEL&0xFF));
+				spiwrite( ( uint8_t )command );
+				for( uint16_t i = 0; i < size; i++ ) {
+					spiwrite( buffer[i] );
 				}
+				Chip_GPIO_SetPinOutHigh(LPC_GPIO, (SPI_CSEL>>8), (SPI_CSEL&0xFF));
 			
 				if( command != RADIO_SET_SLEEP ) {
 					WaitOnBusy( );
@@ -2063,20 +2504,20 @@ class SX1280 {
 			void ReadCommand(RadioCommand command, uint8_t *buffer, uint32_t size ) {
 				WaitOnBusy();
 
-				putchar( command );
-
-				// Behavior on the UART is different depending of the opcode command
-				if( ( command == RADIO_GET_PACKETTYPE ) ||
-					( command == RADIO_GET_RXBUFFERSTATUS ) ||
-					( command == RADIO_GET_RSSIINST ) ||
-					( command == RADIO_GET_PACKETSTATUS ) ||
-					( command == RADIO_GET_IRQSTATUS ) ) {
-					putchar( size );
+				Chip_GPIO_SetPinOutLow(LPC_GPIO, (SPI_CSEL>>8), (SPI_CSEL&0xFF));
+				if( command == RADIO_GET_STATUS ) {
+					buffer[0] = spiwrite( ( uint8_t )command );
+					spiwrite( 0 );
+					spiwrite( 0 );
+				} else {
+					spiwrite( ( uint8_t )command );
+					spiwrite( 0 );
+					for( uint16_t i = 0; i < size; i++ )
+					{
+						 buffer[i] = spiwrite( 0 );
+					}
 				}
-
-				for( uint32_t i = 0; i < size; i++ ) {
-					 buffer[i] = getchar( );
-				}
+				Chip_GPIO_SetPinOutHigh(LPC_GPIO, (SPI_CSEL>>8), (SPI_CSEL&0xFF));
 
 				WaitOnBusy( );
 			}
@@ -2084,26 +2525,14 @@ class SX1280 {
 			void WriteRegister( uint32_t address, uint8_t *buffer, uint32_t size ) {
 				WaitOnBusy( );
 
-				uint32_t addr = address;
-				uint32_t i = 0;
-				for( addr = address; ( addr + 255 ) < ( address + size ); ) {
-					putchar( RADIO_WRITE_REGISTER );
-					putchar( ( addr & 0xFF00 ) >> 8 );
-					putchar( ( addr & 0x00FF )      );
-					putchar( 255 );
-					for( uint32_t lastAddr = addr + 255 ; addr < lastAddr; i++, addr++ ) {
-						putchar( buffer[i] );
-					}
+				Chip_GPIO_SetPinOutLow(LPC_GPIO, (SPI_CSEL>>8), (SPI_CSEL&0xFF));
+				spiwrite( RADIO_WRITE_REGISTER );
+				spiwrite( ( address & 0xFF00 ) >> 8 );
+				spiwrite( address & 0x00FF );
+				for( uint16_t i = 0; i < size; i++ ) {
+					spiwrite( buffer[i] );
 				}
-
-				putchar( RADIO_WRITE_REGISTER );
-				putchar( ( addr & 0xFF00 ) >> 8 );
-				putchar( ( addr & 0x00FF )      );
-				putchar( address + size - addr );
-
-				for( ; addr < ( address + size ); addr++, i++ ) {
-					putchar( buffer[i] );
-				}
+				Chip_GPIO_SetPinOutHigh(LPC_GPIO, (SPI_CSEL>>8), (SPI_CSEL&0xFF));
 
 				WaitOnBusy( );
 			}
@@ -2115,30 +2544,20 @@ class SX1280 {
 			void ReadRegister( uint32_t address, uint8_t *buffer, uint32_t size ) {
 				WaitOnBusy( );
 
-				uint32_t addr = address;
-				uint32_t i = 0;
-				for( addr = address; ( addr + 255 ) < ( address + size ); ) {
-					putchar( RADIO_READ_REGISTER );
-					putchar( ( addr & 0xFF00 ) >> 8 );
-					putchar( addr & 0x00FF );
-					putchar( 255 );
-					for( uint32_t lastAddr = addr + 255 ; addr < lastAddr; i++, addr++ ) {
-						buffer[i] = getchar( );
-					}
+				Chip_GPIO_SetPinOutLow(LPC_GPIO, (SPI_CSEL>>8), (SPI_CSEL&0xFF));
+				spiwrite( RADIO_READ_REGISTER );
+				spiwrite( ( address & 0xFF00 ) >> 8 );
+				spiwrite( address & 0x00FF );
+				spiwrite( 0 );
+				for( uint16_t i = 0; i < size; i++ ) {
+					buffer[i] = spiwrite( 0 );
 				}
-				putchar( RADIO_READ_REGISTER );
-				putchar( ( addr & 0xFF00 ) >> 8 );
-				putchar( addr & 0x00FF );
-				putchar( address + size - addr );
-				for( ; addr < ( address + size ); addr++, i++ ) {
-					buffer[i] = getchar( );
-				}
+				Chip_GPIO_SetPinOutHigh(LPC_GPIO, (SPI_CSEL>>8), (SPI_CSEL&0xFF));
 
 				WaitOnBusy( );
 			}
 
-			uint8_t ReadRegister( uint32_t address )
-			{
+			uint8_t ReadRegister( uint32_t address ) {
 				uint8_t data;
 				ReadRegister( address, &data, 1 );
 				return data;
@@ -2147,13 +2566,13 @@ class SX1280 {
 			void WriteBuffer( uint8_t offset, uint8_t *buffer, uint8_t size ) {
 			    WaitOnBusy( );
 
-				putchar( RADIO_WRITE_BUFFER );
-				putchar( offset );
-				putchar( size );
-				for( uint32_t i = 0; i < size; i++ )
-				{
-					putchar( buffer[i] );
+				Chip_GPIO_SetPinOutLow(LPC_GPIO, (SPI_CSEL>>8), (SPI_CSEL&0xFF));
+				spiwrite( RADIO_WRITE_BUFFER );
+				spiwrite( offset );
+				for( uint16_t i = 0; i < size; i++ ) {
+					spiwrite( buffer[i] );
 				}
+				Chip_GPIO_SetPinOutHigh(LPC_GPIO, (SPI_CSEL>>8), (SPI_CSEL&0xFF));
 
 				WaitOnBusy( );
 			}
@@ -2161,20 +2580,20 @@ class SX1280 {
 			void ReadBuffer( uint8_t offset, uint8_t *buffer, uint8_t size ) {
 			    WaitOnBusy( );
 
-				putchar( RADIO_READ_BUFFER );
-				putchar( offset );
-				putchar( size );
-				for( uint16_t i = 0; i < size; i++ )
-				{
-					buffer[i] = getchar( );
+				Chip_GPIO_SetPinOutLow(LPC_GPIO, (SPI_CSEL>>8), (SPI_CSEL&0xFF));
+				spiwrite( RADIO_READ_BUFFER );
+				spiwrite( offset );
+				spiwrite( 0 );
+				for( uint16_t i = 0; i < size; i++ ) {
+					buffer[i] = spiwrite( 0 );
 				}
+				Chip_GPIO_SetPinOutHigh(LPC_GPIO, (SPI_CSEL>>8), (SPI_CSEL&0xFF));
 
 				WaitOnBusy( );
 			}
 
 
-			void SetSleep( SleepParams sleepConfig )
-			{
+			void SetSleep( SleepParams sleepConfig ) {
 				uint8_t sleep = ( sleepConfig.WakeUpRTC << 3 ) |
 								( sleepConfig.InstructionRamRetention << 2 ) |
 								( sleepConfig.DataBufferRetention << 1 ) |
@@ -2184,8 +2603,7 @@ class SX1280 {
 				WriteCommand( RADIO_SET_SLEEP, &sleep, 1 );
 			}
 
-			void SetStandby( RadioStandbyModes standbyConfig )
-			{
+			void SetStandby( RadioStandbyModes standbyConfig ) {
 				WriteCommand( RADIO_SET_STANDBY, ( uint8_t* )&standbyConfig, 1 );
 				if( standbyConfig == STDBY_RC )
 				{
@@ -2197,14 +2615,12 @@ class SX1280 {
 				}
 			}
 
-			void SetFs( void )
-			{
+			void SetFs( void ) {
 				WriteCommand( RADIO_SET_FS, 0, 0 );
 				OperatingMode = MODE_FS;
 			}
 
-			void SetTx( TickTime timeout )
-			{
+			void SetTx( TickTime timeout ) {
 				uint8_t buf[3];
 				buf[0] = timeout.PeriodBase;
 				buf[1] = ( uint8_t )( ( timeout.PeriodBaseCount >> 8 ) & 0x00FF );
@@ -2224,8 +2640,7 @@ class SX1280 {
 				OperatingMode = MODE_TX;
 			}
 
-			void SetRx( TickTime timeout )
-			{
+			void SetRx( TickTime timeout ) {
 				uint8_t buf[3];
 				buf[0] = timeout.PeriodBase;
 				buf[1] = ( uint8_t )( ( timeout.PeriodBaseCount >> 8 ) & 0x00FF );
@@ -2245,8 +2660,7 @@ class SX1280 {
 				OperatingMode = MODE_RX;
 			}
 
-			void SetRxDutyCycle( RadioTickSizes periodBase, uint16_t periodBaseCountRx, uint16_t periodBaseCountSleep )
-			{
+			void SetRxDutyCycle( RadioTickSizes periodBase, uint16_t periodBaseCountRx, uint16_t periodBaseCountSleep ) {
 				uint8_t buf[5];
 
 				buf[0] = periodBase;
@@ -2258,32 +2672,27 @@ class SX1280 {
 				OperatingMode = MODE_RX;
 			}
 
-			void SetCad( void )
-			{
+			void SetCad( void ) {
 				WriteCommand( RADIO_SET_CAD, 0, 0 );
 				OperatingMode = MODE_CAD;
 			}
 
-			void SetTxContinuousWave( void )
-			{
+			void SetTxContinuousWave( void ) {
 				WriteCommand( RADIO_SET_TXCONTINUOUSWAVE, 0, 0 );
 			}
 
-			void SetTxContinuousPreamble( void )
-			{
+			void SetTxContinuousPreamble( void ) {
 				WriteCommand( RADIO_SET_TXCONTINUOUSPREAMBLE, 0, 0 );
 			}
 
-			void SetPacketType( RadioPacketTypes packetType )
-			{
+			void SetPacketType( RadioPacketTypes packetType ) {
 				// Save packet type internally to avoid questioning the radio
 				PacketType = packetType;
 
 				WriteCommand( RADIO_SET_PACKETTYPE, ( uint8_t* )&packetType, 1 );
 			}
 
-			RadioPacketTypes GetPacketType( bool returnLocalCopy )
-			{
+			RadioPacketTypes GetPacketType( bool returnLocalCopy ) {
 				RadioPacketTypes packetType = PACKET_TYPE_NONE;
 				if( returnLocalCopy == false )
 				{
@@ -2300,8 +2709,7 @@ class SX1280 {
 				return packetType;
 			}
 			
-			void SetRfFrequency( uint32_t rfFrequency )
-			{
+			void SetRfFrequency( uint32_t rfFrequency ) {
 				uint8_t buf[3];
 				uint32_t freq = 0;
 
@@ -2314,8 +2722,7 @@ class SX1280 {
 				WriteCommand( RADIO_SET_RFFREQUENCY, buf, 3 );
 			}
 
-			void SetTxParams( int8_t power, RadioRampTimes rampTime )
-			{
+			void SetTxParams( int8_t power, RadioRampTimes rampTime ) {
 				uint8_t buf[2];
 
 				// The power value to send on SPI/UART is in the range [0..31] and the
@@ -2325,14 +2732,12 @@ class SX1280 {
 				WriteCommand( RADIO_SET_TXPARAMS, buf, 2 );
 			}
 
-			void SetCadParams( RadioLoRaCadSymbols cadSymbolNum )
-			{
+			void SetCadParams( RadioLoRaCadSymbols cadSymbolNum ) {
 				WriteCommand( RADIO_SET_CADPARAMS, ( uint8_t* )&cadSymbolNum, 1 );
 				OperatingMode = MODE_CAD;
 			}
 
-			void SetBufferBaseAddresses( uint8_t txBaseAddress, uint8_t rxBaseAddress )
-			{
+			void SetBufferBaseAddresses( uint8_t txBaseAddress, uint8_t rxBaseAddress ) {
 				uint8_t buf[2];
 
 				buf[0] = txBaseAddress;
@@ -2340,8 +2745,7 @@ class SX1280 {
 				WriteCommand( RADIO_SET_BUFFERBASEADDRESS, buf, 2 );
 			}
 
-			void SetModulationParams( ModulationParams *modParams )
-			{
+			void SetModulationParams( ModulationParams *modParams ) {
 				uint8_t buf[3];
 
 				// Check if required configuration corresponds to the stored packet type
@@ -2393,8 +2797,7 @@ class SX1280 {
 				WriteCommand( RADIO_SET_MODULATIONPARAMS, buf, 3 );
 			}
 
-			void SetPacketParams( PacketParams *packetParams )
-			{
+			void SetPacketParams( PacketParams *packetParams ) {
 				uint8_t buf[7];
 				// Check if required configuration corresponds to the stored packet type
 				// If not, silently update radio packet type
@@ -2464,13 +2867,11 @@ class SX1280 {
 				WriteCommand( RADIO_SET_PACKETPARAMS, buf, 7 );
 			}
 
-			void ForcePreambleLength( RadioPreambleLengths preambleLength )
-			{
+			void ForcePreambleLength( RadioPreambleLengths preambleLength ) {
 				WriteRegister( REG_LR_PREAMBLELENGTH, ( ReadRegister( REG_LR_PREAMBLELENGTH ) & MASK_FORCE_PREAMBLELENGTH ) | preambleLength );
 			}
 
-			void GetRxBufferStatus( uint8_t *rxPayloadLength, uint8_t *rxStartBufferPointer )
-			{
+			void GetRxBufferStatus( uint8_t *rxPayloadLength, uint8_t *rxStartBufferPointer ) {
 				uint8_t status[2];
 
 				ReadCommand( RADIO_GET_RXBUFFERSTATUS, status, 2 );
@@ -2495,8 +2896,7 @@ class SX1280 {
 				*rxStartBufferPointer = status[1];
 			}
 
-			void GetPacketStatus( PacketStatus *packetStatus )
-			{
+			void GetPacketStatus( PacketStatus *packetStatus ) {
 				uint8_t status[5];
 
 				ReadCommand( RADIO_GET_PACKETSTATUS, status, 5 );
@@ -2576,8 +2976,7 @@ class SX1280 {
 				}
 			}
 
-			int8_t GetRssiInst( void )
-			{
+			int8_t GetRssiInst( void ) {
 				uint8_t raw = 0;
 
 				ReadCommand( RADIO_GET_RSSIINST, &raw, 1 );
@@ -2585,8 +2984,7 @@ class SX1280 {
 				return ( int8_t ) ( -raw / 2 );
 			}
 
-			void SetDioIrqParams( uint16_t irqMask, uint16_t dio1Mask, uint16_t dio2Mask, uint16_t dio3Mask )
-			{
+			void SetDioIrqParams( uint16_t irqMask, uint16_t dio1Mask, uint16_t dio2Mask, uint16_t dio3Mask ) {
 				uint8_t buf[8];
 
 				buf[0] = ( uint8_t )( ( irqMask >> 8 ) & 0x00FF );
@@ -2600,15 +2998,13 @@ class SX1280 {
 				WriteCommand( RADIO_SET_DIOIRQPARAMS, buf, 8 );
 			}
 
-			uint16_t GetIrqStatus( void )
-			{
+			uint16_t GetIrqStatus( void ) {
 				uint8_t irqStatus[2];
 				ReadCommand( RADIO_GET_IRQSTATUS, irqStatus, 2 );
 				return ( irqStatus[0] << 8 ) | irqStatus[1];
 			}
 
-			void ClearIrqStatus( uint16_t irqMask )
-			{
+			void ClearIrqStatus( uint16_t irqMask ) {
 				uint8_t buf[2];
 
 				buf[0] = ( uint8_t )( ( ( uint16_t )irqMask >> 8 ) & 0x00FF );
@@ -2616,8 +3012,7 @@ class SX1280 {
 				WriteCommand( RADIO_CLR_IRQSTATUS, buf, 2 );
 			}
 
-			void Calibrate( CalibrationParams calibParam )
-			{
+			void Calibrate( CalibrationParams calibParam ) {
 				uint8_t cal = ( calibParam.ADCBulkPEnable << 5 ) |
 							  ( calibParam.ADCBulkNEnable << 4 ) |
 							  ( calibParam.ADCPulseEnable << 3 ) |
@@ -2627,18 +3022,15 @@ class SX1280 {
 				WriteCommand( RADIO_CALIBRATE, &cal, 1 );
 			}
 
-			void SetRegulatorMode( RadioRegulatorModes mode )
-			{
+			void SetRegulatorMode( RadioRegulatorModes mode ) {
 				WriteCommand( RADIO_SET_REGULATORMODE, ( uint8_t* )&mode, 1 );
 			}
 
-			void SetSaveContext( void )
-			{
+			void SetSaveContext( void ) {
 				WriteCommand( RADIO_SET_SAVECONTEXT, 0, 0 );
 			}
 
-			void SetAutoTx( uint16_t time )
-			{
+			void SetAutoTx( uint16_t time ) {
 				uint16_t compensatedTime = time - ( uint16_t )AUTO_TX_OFFSET;
 				uint8_t buf[2];
 
@@ -2647,23 +3039,19 @@ class SX1280 {
 				WriteCommand( RADIO_SET_AUTOTX, buf, 2 );
 			}
 
-			void SetAutoFs( bool enableAutoFs )
-			{
+			void SetAutoFs( bool enableAutoFs ) {
 				WriteCommand( RADIO_SET_AUTOFS, ( uint8_t * )&enableAutoFs, 1 );
 			}
 
-			void SetLongPreamble( bool enable )
-			{
+			void SetLongPreamble( bool enable ) {
 				WriteCommand( RADIO_SET_LONGPREAMBLE, ( uint8_t * )&enable, 1 );
 			}
 
-			void SetPayload( uint8_t *buffer, uint8_t size, uint8_t offset )
-			{
+			void SetPayload( uint8_t *buffer, uint8_t size, uint8_t offset ) {
 				WriteBuffer( offset, buffer, size );
 			}
 
-			uint8_t GetPayload( uint8_t *buffer, uint8_t *size , uint8_t maxSize )
-			{
+			uint8_t GetPayload( uint8_t *buffer, uint8_t *size , uint8_t maxSize ) {
 				uint8_t offset;
 
 				GetRxBufferStatus( size, &offset );
@@ -2675,14 +3063,12 @@ class SX1280 {
 				return 0;
 			}
 
-			void SendPayload( uint8_t *payload, uint8_t size, TickTime timeout, uint8_t offset = 0 )
-			{
+			void SendPayload( uint8_t *payload, uint8_t size, TickTime timeout, uint8_t offset = 0 ) {
 				SetPayload( payload, size, offset );
 				SetTx( timeout );
 			}
 
-			uint8_t SetSyncWord( uint8_t syncWordIdx, uint8_t *syncWord )
-			{
+			uint8_t SetSyncWord( uint8_t syncWordIdx, uint8_t *syncWord ) {
 				uint16_t addr;
 				uint8_t syncwordSize = 0;
 
@@ -2750,14 +3136,12 @@ class SX1280 {
 				return 0;
 			}
 
-			void SetSyncWordErrorTolerance( uint8_t ErrorBits )
-			{
+			void SetSyncWordErrorTolerance( uint8_t ErrorBits ) {
 				ErrorBits = ( ReadRegister( REG_LR_SYNCWORDTOLERANCE ) & 0xF0 ) | ( ErrorBits & 0x0F );
 				WriteRegister( REG_LR_SYNCWORDTOLERANCE, ErrorBits );
 			}
 
-			uint8_t SetCrcSeed( uint8_t *seed )
-			{
+			uint8_t SetCrcSeed( uint8_t *seed ) {
 				uint8_t updated = 0;
 				switch( GetPacketType( true ) )
 				{
@@ -2783,22 +3167,19 @@ class SX1280 {
 			}
 
 			#ifdef BLE_SUPPORT
-			void SetBleAccessAddress( uint32_t accessAddress )
-			{
+			void SetBleAccessAddress( uint32_t accessAddress ) {
 				WriteRegister( REG_LR_BLE_ACCESS_ADDRESS, ( accessAddress >> 24 ) & 0x000000FF );
 				WriteRegister( REG_LR_BLE_ACCESS_ADDRESS + 1, ( accessAddress >> 16 ) & 0x000000FF );
 				WriteRegister( REG_LR_BLE_ACCESS_ADDRESS + 2, ( accessAddress >> 8 ) & 0x000000FF );
 				WriteRegister( REG_LR_BLE_ACCESS_ADDRESS + 3, accessAddress & 0x000000FF );
 			}
 
-			void SetBleAdvertizerAccessAddress( void )
-			{
+			void SetBleAdvertizerAccessAddress( void ) {
 				SetBleAccessAddress( BLE_ADVERTIZER_ACCESS_ADDRESS );
 			}
 			#endif  // #ifdef BLE_SUPPORT
 
-			void SetCrcPolynomial( uint16_t polynomial )
-			{
+			void SetCrcPolynomial( uint16_t polynomial ) {
 				switch( GetPacketType( true ) )
 				{
 				#if defined(GFSK_SUPPORT) || defined(FLRC_SUPPORT)
@@ -2815,8 +3196,7 @@ class SX1280 {
 				}
 			}
 
-			void SetWhiteningSeed( uint8_t seed )
-			{
+			void SetWhiteningSeed( uint8_t seed ) {
 				switch( GetPacketType( true ) )
 				{
 				#if defined(GFSK_SUPPORT) || defined(FLRC_SUPPORT) || defined(BLE_SUPPORT)
@@ -2832,8 +3212,7 @@ class SX1280 {
 			}
 
 			#ifdef RANGING_SUPPORT
-			void SetRangingIdLength( RadioRangingIdCheckLengths length )
-			{
+			void SetRangingIdLength( RadioRangingIdCheckLengths length ) {
 				switch( GetPacketType( true ) )
 				{
 					case PACKET_TYPE_RANGING:
@@ -2844,8 +3223,7 @@ class SX1280 {
 				}
 			}
 
-			void SetDeviceRangingAddress( uint32_t address )
-			{
+			void SetDeviceRangingAddress( uint32_t address ) {
 				uint8_t addrArray[] = { uint8_t(address >> 24), uint8_t(address >> 16), uint8_t(address >> 8), uint8_t(address) };
 
 				switch( GetPacketType( true ) )
@@ -2858,8 +3236,7 @@ class SX1280 {
 				}
 			}
 
-			void SetRangingRequestAddress( uint32_t address )
-			{
+			void SetRangingRequestAddress( uint32_t address ) {
 				uint8_t addrArray[] = { uint8_t(address >> 24), uint8_t(address >> 16), uint8_t(address >> 8), uint8_t(address) };
 
 				switch( GetPacketType( true ) )
@@ -2872,8 +3249,7 @@ class SX1280 {
 				}
 			}
 
-			double GetRangingResult( RadioRangingResultTypes resultType )
-			{
+			double GetRangingResult( RadioRangingResultTypes resultType ) {
 				uint32_t valLsb = 0;
 				double val = 0.0;
 
@@ -2913,8 +3289,7 @@ class SX1280 {
 				return val;
 			}
 
-			void SetRangingCalibration( uint16_t cal )
-			{
+			void SetRangingCalibration( uint16_t cal ) {
 				switch( GetPacketType( true ) )
 				{
 					case PACKET_TYPE_RANGING:
@@ -2926,8 +3301,7 @@ class SX1280 {
 				}
 			}
 
-			void RangingClearFilterResult( void )
-			{
+			void RangingClearFilterResult( void ) {
 				uint8_t regVal = ReadRegister( REG_LR_RANGINGRESULTCLEARREG );
 
 				// To clear result, set bit 5 to 1 then to 0
@@ -2935,14 +3309,12 @@ class SX1280 {
 				WriteRegister( REG_LR_RANGINGRESULTCLEARREG, regVal & ( ~( 1 << 5 ) ) );
 			}
 
-			void RangingSetFilterNumSamples( uint8_t num )
-			{
+			void RangingSetFilterNumSamples( uint8_t num ) {
 				// Silently set 8 as minimum value
 				WriteRegister( REG_LR_RANGINGFILTERWINDOWSIZE, ( num < DEFAULT_RANGING_FILTER_SIZE ) ? DEFAULT_RANGING_FILTER_SIZE : num );
 			}
 
-			void SetRangingRole( RadioRangingRoles role )
-			{
+			void SetRangingRole( RadioRangingRoles role ) {
 				uint8_t buf[1];
 
 				buf[0] = role;
@@ -2950,8 +3322,7 @@ class SX1280 {
 			}
 			#endif  // #ifdef RANGING_SUPPORT
 
-			double GetFrequencyError( )
-			{
+			double GetFrequencyError( ) {
 				uint8_t efeRaw[3] = {0};
 				uint32_t efe = 0;
 				double efeHz = 0.0;
@@ -2981,14 +3352,12 @@ class SX1280 {
 				return efeHz;
 			}
 
-			void SetPollingMode( void )
-			{
+			void SetPollingMode( void ) {
 				PollingMode = true;
 			}
 
 			#ifdef LORA_SUPPORT
-			int32_t GetLoRaBandwidth( )
-			{
+			int32_t GetLoRaBandwidth( ) {
 				int32_t bwValue = 0;
 
 				switch( LoRaBandwidth ) {
@@ -3011,13 +3380,11 @@ class SX1280 {
 			}
 			#endif  // #ifdef LORA_SUPPORT
 
-			void SetInterruptMode( void )
-			{
+			void SetInterruptMode( void ) {
 				PollingMode = false;
 			}
 
-			void OnDioIrq( void )
-			{
+			void OnDioIrq( void ) {
 				/*
 				 * When polling mode is activated, it is up to the application to call
 				 * ProcessIrqs( ). Otherwise, the driver automatically calls ProcessIrqs( )
@@ -3030,8 +3397,7 @@ class SX1280 {
 				}
 			}
 
-			void ProcessIrqs( void )
-			{
+			void ProcessIrqs( void ) {
 				RadioPacketTypes packetType = PACKET_TYPE_NONE;
 
 				if( PollingMode == true ) {
@@ -3222,7 +3588,9 @@ class SX1280 {
 			}
 
 			void txDone() {
-				// TODO
+				sdd1306->PlaceAsciiStr(0,0,"TXDONE!!");
+				sdd1306->Display();
+				delay(250);
 			}
 
 			void rxDone() {
@@ -3230,26 +3598,40 @@ class SX1280 {
 				GetPacketStatus(&packetStatus);
 				uint8_t rxBufferSize = 0;
                 GetPayload( rxBuffer, &rxBufferSize, LORA_BUFFER_SIZE );
+
+				sdd1306->PlaceAsciiStr(0,0,"RXDONE!!");
+				sdd1306->Display();
+				delay(250);
 			}
 
 			void rxSyncWordDone() {
-				// TODO
-			
+				sdd1306->PlaceAsciiStr(0,0,"RXSYNCDO");
+				sdd1306->Display();
+				delay(250);
 			}
+
 			void rxHeaderDone() {
-				// TODO
+				sdd1306->PlaceAsciiStr(0,0,"RXHEADER");
+				sdd1306->Display();
+				delay(250);
 			}
 			
 			void txTimeout() {
-				// TODO
+				sdd1306->PlaceAsciiStr(0,0,"TXTIMOUT");
+				sdd1306->Display();
+				delay(250);
 			}
 			
 			void rxTimeout() {
-				// TODO
+				sdd1306->PlaceAsciiStr(0,0,"RXTIMOUT");
+				sdd1306->Display();
+				delay(250);
 			}
 			
 			void rxError(IrqErrorCode errCode) {
-				// TODO
+				sdd1306->PlaceAsciiStr(0,0,"RXERROR!");
+				sdd1306->Display();
+				delay(250);
 			}
 
 			void rangingDone(IrqRangingCode errCode) {
@@ -3259,30 +3641,41 @@ class SX1280 {
 			void cadDone(bool cadFlag) {
 				// TODO
 			}
+			
+			void SendBeacon() {
+				const char *beacon = "DUCKPONDDUCKPOND";
+				memcpy(txBuffer,beacon,16);
+				SendBuffer();
+			}
 
 	private:
 	
 			void disableIRQ() {
-				NVIC_DisableIRQ(INT_IRQn);
+				NVIC_DisableIRQ(PIN_INT0_IRQn);
 			}
 
 			void enableIRQ() {
-				NVIC_EnableIRQ(INT_IRQn);
+				NVIC_EnableIRQ(PIN_INT0_IRQn);
 			}
 
-
-			void putchar(uint8_t c) {	
-				while ((Chip_UART_ReadLineStatus(LPC_USART) & UART_LSR_THRE) == 0) { }
-				Chip_UART_SendByte(LPC_USART, c);
+			uint8_t spiwrite(uint8_t val) {
+				Chip_GPIO_SetPinOutLow(LPC_GPIO, (SPI_SCLK>>8), (SPI_SCLK&0xFF));
+				uint8_t read_value = 0;
+				for (uint32_t c=0; c<8; c++) {
+					read_value <<= 1;
+					Chip_GPIO_SetPinOutLow(LPC_GPIO, (SPI_SCLK>>8), (SPI_SCLK&0xFF));
+					if ((val&(1<<(7-c)))) {
+						Chip_GPIO_SetPinOutHigh(LPC_GPIO, (SPI_MOSI>>8), (SPI_MOSI&0xFF));
+					} else {
+						Chip_GPIO_SetPinOutLow(LPC_GPIO, (SPI_MOSI>>8), (SPI_MOSI&0xFF));
+					}
+					read_value |= Chip_GPIO_GetPinState(LPC_GPIO, (SPI_MISO>>8), (SPI_MISO&0xFF));
+					Chip_GPIO_SetPinOutHigh(LPC_GPIO, (SPI_SCLK>>8), (SPI_SCLK&0xFF));
+				}
+				return read_value;
 			}
-
-			uint8_t getchar() {
-				while ((Chip_UART_ReadLineStatus(LPC_USART) & UART_LSR_RDR) == 0) { }
-				return(Chip_UART_ReadByte(LPC_USART));
-			}
-
-			int32_t complement2( const uint32_t num, const uint8_t bitCnt )
-			{
+						
+			int32_t complement2( const uint32_t num, const uint8_t bitCnt ) {
 				int32_t retVal = int32_t(num);
 				if( int32_t(num) >= 2<<( bitCnt - 2 ) ) {
 					retVal -= 2<<( bitCnt - 1 );
@@ -4899,8 +5292,12 @@ private:
 
 }  // namespace {
 
+static LEDs *g_leds = 0;
+static SPI *g_spi = 0;
 static UI *g_ui = 0;
 static Effects *g_effects = 0;
+static SX1280 *g_sx1280 = 0;
+static SDD1306 *g_sdd1306 = 0;
 
 extern "C" {
 	
@@ -4910,6 +5307,14 @@ extern "C" {
 		
 		if ( (system_clock_ms % (1024*32)) == 0) {
 			g_ui->SetMode(system_clock_ms, 1);
+		}
+		
+		if ( (system_clock_ms % (256)) == 0) {
+			g_sx1280->ProcessIrqs();
+		}
+		
+		if ( (system_clock_ms % (4096)) == 0) {
+			g_sx1280->SendBeacon();
 		}
 		
 		g_effects->CheckPostTime();
@@ -4925,7 +5330,7 @@ extern "C" {
 	
 	void FLEX_INT0_IRQHandler(void)
 	{
-		//sx1280.OnDioIrq();
+		g_sx1280->OnDioIrq();
 		Chip_PININT_ClearIntStatus(LPC_PININT, PININTCH0);
 	}
 
@@ -4945,6 +5350,20 @@ extern "C" {
 	
 	void USB_IRQHandler(void)
 	{
+		uint32_t *addr = (uint32_t *) LPC_USB->EPLISTSTART;
+
+		/*	WORKAROUND for artf32289 ROM driver BUG:
+			As part of USB specification the device should respond
+			with STALL condition for any unsupported setup packet. The host will send
+			new setup packet/request on seeing STALL condition for EP0 instead of sending
+			a clear STALL request. Current driver in ROM doesn't clear the STALL
+			condition on new setup packet which should be fixed.
+		 */
+		if ( LPC_USB->DEVCMDSTAT & _BIT(8) ) {	/* if setup packet is received */
+			addr[0] &= ~(_BIT(29));	/* clear EP0_OUT stall */
+			addr[2] &= ~(_BIT(29));	/* clear EP0_IN stall */
+		}
+		USBD_API->hw->ISR(g_hUsb);
 	}
 }
 
@@ -4953,6 +5372,7 @@ int main(void)
 	SystemCoreClockUpdate();
 
 	SDD1306 sdd1306;
+	g_sdd1306 = &sdd1306;
 	BQ24295 bq24295;
 
 	Setup setup(sdd1306, bq24295);
@@ -4962,7 +5382,7 @@ int main(void)
 		bq24295.SetInputCurrentLimit(900);
 		bq24295.EnableInputLimits();
 		bq24295.SetChipThermalRegulationThreshold(80);
-		bq24295.SetBoostVoltage(5000);
+		bq24295.SetBoostVoltage(5126);
 	}
 	
 	delay(50);
@@ -4970,8 +5390,10 @@ int main(void)
 	EEPROM settings;
 	
 	SPI spi;
+	g_spi = &spi;
 
 	LEDs leds;
+	g_leds = &leds;
 	
 	spi.push_frame(leds, 0);
 
@@ -5028,7 +5450,9 @@ int main(void)
 
 	SX1280 sx1280;
 	
-	sx1280.Init(sdd1306, true);
+	g_sx1280 = &sx1280;
+	
+	sx1280.Init(sdd1306, false);
 	
 	// start 1ms timer
 	SysTick_Config(SystemCoreClock / 1000);
