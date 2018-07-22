@@ -395,7 +395,7 @@ uint32_t vcom_write(const uint8_t *pBuf, uint32_t len)
 }
 
 static USBD_HANDLE_T g_hUsb;
-static uint8_t g_rxBuff[256];
+//static uint8_t g_rxBuff[256];
 const  USBD_API_T *g_pUsbApi;
 
 /* Initialize pin and clocks for USB0/USB1 port */
@@ -713,18 +713,38 @@ private:
 
 };
 
-#ifndef NO_FLASH
+class I2C_Guard {
+public:
+	static volatile uint32_t i2c_guard;
+	
+	I2C_Guard() {
+		i2c_guard++;
+	}
+	
+	~I2C_Guard() {
+		i2c_guard--;
+	}
+	
+	bool Check() {
+		if (i2c_guard > 0) {
+			return false;
+		}
+		return false;
+	}
+};
+
+volatile uint32_t I2C_Guard::i2c_guard = 0;
+
 class Flash {
 
 public:
-	const uint32_t FLASH_MOSI0_PIN = 0x0006; // 0_6
-	const uint32_t FLASH_MISO0_PIN = 0x0009; // 0_9
+	const uint32_t FLASH_MOSI0_PIN = 0x0009; // 0_9
+	const uint32_t FLASH_MISO0_PIN = 0x0008; // 0_8
 	const uint32_t FLASH_SCK0_PIN = 0x000A; // 0_10
-	const uint32_t FLASH_CSEL_PIN = 0x000A; // 0_10
+	const uint32_t FLASH_CSEL_PIN = 0x011F; // 1_31
+	const uint32_t ALT_SCK0_PIN = 0x011D; // 1_29
 
-	const uint32_t ALT_SCK0_PIN = 0x0009; // 0_9
-
-	void Flash() {
+	Flash() {
 		// CSEL
 		Chip_IOCON_PinMuxSet(LPC_IOCON, (FLASH_CSEL_PIN>>8), (FLASH_CSEL_PIN&0xFF), IOCON_FUNC2);
 		// MISO0
@@ -793,7 +813,6 @@ private:
 		return Chip_SSP_ReceiveFrame(LPC_SSP0);
 	}
 };
-#endif  // #ifndef NO_FLASH
 
 class EEPROM {
 
@@ -994,7 +1013,7 @@ public:
 	const uint32_t BOTTOM_LED_MOSI0_PIN = 0x0009; // 0_9
 	const uint32_t BOTTOM_LED_SCK0_PIN = 0x011D; // 1_29
 
-	const uint32_t ALT_SCK0_PIN = 0x0006; // 0_6
+	const uint32_t ALT_SCK0_PIN = 0x000A; // 0_10
 
 	const uint32_t TOP_LED_MOSI1_PIN = 0x0116; // 1_22
 	const uint32_t TOP_LED_SCK1_PIN = 0x010F; // 1_15
@@ -1026,7 +1045,7 @@ public:
 		Chip_SSP_Enable(LPC_SSP1);
 	}
 
-	void push_frame(LEDs &leds, uint32_t brightness = 0x01)  {
+	void push_frame(LEDs &leds, int32_t brightness = 0x01)  {
 	
 		// Set to GPIO, shared with flash chip
 		Chip_IOCON_PinMuxSet(LPC_IOCON, (ALT_SCK0_PIN>>8), (ALT_SCK0_PIN&0xFF), IOCON_FUNC0);
@@ -1049,14 +1068,59 @@ public:
 
 		// Frame data
 		for (int32_t c=0; c<HALF_LEDS; c++) {
-			push_byte_top(0xE0 | brightness);
-			push_byte_btm(0xE0 | brightness);
+			push_byte_top(0xE0 | max(0L, (brightness * 2) - 1) );
+			push_byte_btm(0xE0 | max(0L, (brightness * 2) - 1) );
 			push_byte_top(leds.led_data[HALF_LEDS*0*3 + c*3+2]);
 			push_byte_btm(leds.led_data[HALF_LEDS*1*3 + c*3+2]);
 			push_byte_top(leds.led_data[HALF_LEDS*0*3 + c*3+0]);
 			push_byte_btm(leds.led_data[HALF_LEDS*1*3 + c*3+0]);
 			push_byte_top(leds.led_data[HALF_LEDS*0*3 + c*3+1]);
 			push_byte_btm(leds.led_data[HALF_LEDS*1*3 + c*3+1]);
+		}
+
+		// End frame
+		push_byte_top(0xFF);
+		push_byte_btm(0xFF);
+		push_byte_top(0xFF);
+		push_byte_btm(0xFF);
+		push_byte_top(0xFF);
+		push_byte_btm(0xFF);
+		push_byte_top(0xFF);
+		push_byte_btm(0xFF);
+	}
+
+	void push_null()  {
+	
+		// Set to GPIO, shared with flash chip
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (ALT_SCK0_PIN>>8), (ALT_SCK0_PIN&0xFF), IOCON_FUNC0);
+		// SCK0
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (BOTTOM_LED_SCK0_PIN>>8), (BOTTOM_LED_SCK0_PIN&0xFF), IOCON_FUNC1);
+
+		// Set format again
+		Chip_SSP_SetClockRate(LPC_SSP0, 0, 2);
+		Chip_SSP_SetFormat(LPC_SSP0, SSP_BITS_8, SSP_FRAMEFORMAT_SPI, SSP_CLOCK_MODE0);
+
+		// Start frame
+		push_byte_top(0);
+		push_byte_btm(0);
+		push_byte_top(0);
+		push_byte_btm(0);
+		push_byte_top(0);
+		push_byte_btm(0);
+		push_byte_top(0);
+		push_byte_btm(0);
+
+		// Frame data
+		for (int32_t c=0; c<HALF_LEDS; c++) {
+			push_byte_top(0xE0);
+			push_byte_btm(0xE0);
+			
+			push_byte_top(0);
+			push_byte_btm(0);
+			push_byte_top(0);
+			push_byte_btm(0);
+			push_byte_top(0);
+			push_byte_btm(0);
 		}
 
 		// End frame
@@ -1092,6 +1156,11 @@ class BQ24295 {
 			}
 			
 			void SetBoostVoltage (uint32_t voltageMV) {
+				I2C_Guard guard;
+				if (guard.Check()) {
+					return;
+				}
+				
 				uint8_t reg = getRegister(0x06);
 				if ((voltageMV >= 4550) && (voltageMV <= 5510)) {
 					uint32_t codedValue = voltageMV;
@@ -1106,12 +1175,22 @@ class BQ24295 {
 			}
 			
 			uint32_t GetBoostVoltage () {
+				I2C_Guard guard;
+				if (guard.Check()) {
+					return 0;
+				}
+
 				uint8_t reg = getRegister(0x06);
 				reg = (reg >> 4) & 0x0f;
 				return 4550 + ((uint32_t) reg) * 64;
 			}
 
 			void SetBoostUpperTemperatureLimit (uint32_t temperatureC) {
+				I2C_Guard guard;
+				if (guard.Check()) {
+					return;
+				}
+
 				uint8_t reg = getRegister(0x06);
 				uint8_t codedValue = 0;
 				if (temperatureC < 60) {
@@ -1127,6 +1206,11 @@ class BQ24295 {
 			}
 
 			uint32_t GetBoostUpperTemperatureLimit () {
+				I2C_Guard guard;
+				if (guard.Check()) {
+					return 0;
+				}
+
 				uint8_t reg = getRegister(0x06);
 				if (((reg >> 2) & 0x03) != 0x03) {
 					switch ((reg >> 2) & 0x03) {
@@ -1145,6 +1229,11 @@ class BQ24295 {
 			}
 
 			void SetInputCurrentLimit(uint32_t currentMA) {
+				I2C_Guard guard;
+				if (guard.Check()) {
+					return;
+				}
+
 				uint8_t reg = 0;
 				if ((reg = getRegister(0x00)) != 0) {
 					// Input current limit is in bits 0 to 2, coded
@@ -1178,6 +1267,11 @@ class BQ24295 {
 			}
 			
 			uint32_t GetInputCurrentLimit() {
+				I2C_Guard guard;
+				if (guard.Check()) {
+					return 0;
+				}
+
 				uint8_t reg = getRegister(0x00);
 				switch (reg & 0x07) {
 					case 0:
@@ -1209,14 +1303,26 @@ class BQ24295 {
 			}
 
 			void EnableInputLimits() {
+				I2C_Guard guard;
+				if (guard.Check()) {
+					return;
+				}
 				setRegisterBits(0x00, (1 << 7));
 			}
 			
 			void DisableInputLimits() {
+				I2C_Guard guard;
+				if (guard.Check()) {
+					return;
+				}
 				clearRegisterBits(0x00, (1 << 7));
 			}
 
 			void SetChipThermalRegulationThreshold(uint32_t temperatureC) {
+				I2C_Guard guard;
+				if (guard.Check()) {
+					return;
+				}
 				uint8_t reg = getRegister(0x06);
 				uint8_t codedValue = 0;
 				if (temperatureC < 80) {
@@ -1234,6 +1340,10 @@ class BQ24295 {
 			}
 			
 			uint32_t GetChipThermalRegulationThreshold() {
+				I2C_Guard guard;
+				if (guard.Check()) {
+					return 0;
+				}
 				uint8_t reg = getRegister(0x06);
 				switch (reg & 0x03) {
 					case 0:
@@ -1291,6 +1401,7 @@ class BQ24295 {
 class SDD1306 {
 
 	public:
+	
  			static const uint32_t i2caddr = 0x3C;
 
 			SDD1306() {
@@ -1407,12 +1518,12 @@ class SDD1306 {
 			void Init() const {
 
 				// Toggle RESET line
-				Chip_GPIO_SetPinDIROutput(LPC_GPIO, 0, 8);
-				Chip_GPIO_SetPinState(LPC_GPIO, 0, 8, true);
+				Chip_GPIO_SetPinDIROutput(LPC_GPIO, 0, 22);
+				Chip_GPIO_SetPinState(LPC_GPIO, 0, 22, true);
 				delay(1);
-				Chip_GPIO_SetPinState(LPC_GPIO, 0, 8, false);
+				Chip_GPIO_SetPinState(LPC_GPIO, 0, 22, false);
 				delay(10);
-				Chip_GPIO_SetPinState(LPC_GPIO, 0, 8, true);
+				Chip_GPIO_SetPinState(LPC_GPIO, 0, 22, true);
 
 
 				static uint8_t startup_sequence[] = {
@@ -1458,6 +1569,10 @@ class SDD1306 {
 	private:
 
 			void DisplayCenterFlip() {
+				I2C_Guard guard;
+				if (guard.Check()) {
+					return;
+				}
 				uint8_t buf[65];
 				buf[0] = 0x40;
 				for (uint32_t y=0; y<4; y++) {
@@ -1491,6 +1606,10 @@ class SDD1306 {
 			}
 
 			void DisplayChar(uint32_t x, uint32_t y, char ch, uint8_t attr) {
+				I2C_Guard guard;
+				if (guard.Check()) {
+					return;
+				}
 				WriteCommand(0xB0+y);
 				x=x*8+32;
 				WriteCommand(0x0f&(x   )); // 0x20 offset
@@ -1547,6 +1666,10 @@ class SDD1306 {
 			}
 
 			void WriteCommand(uint8_t v) const {
+				I2C_Guard guard;
+				if (guard.Check()) {
+					return;
+				}
 				uint8_t control[2];
 				control[0] = 0;
 				control[1] = v;
@@ -2357,11 +2480,13 @@ class SX1280 {
 			const uint32_t MASK_FORCE_PREAMBLELENGTH = 0x8F;
 			const uint32_t BLE_ADVERTIZER_ACCESS_ADDRESS = 0x8E89BED6;
 			
-			SDD1306 *sdd1306;
+			SDD1306 &sdd1306;
 
-			SX1280() { }
+			SX1280(SDD1306 &_sdd1306):
+				sdd1306(_sdd1306) { 
+			}
 			
-			void Init(SDD1306 &_sdd1306, bool pollMode) {
+			void Init(bool pollMode) {
 				// Configure control pins
 				Chip_IOCON_PinMuxSet(LPC_IOCON, (RESET_PIN>>8), (RESET_PIN&0xFF), IOCON_FUNC0 | IOCON_MODE_PULLUP);
 				Chip_GPIO_SetPinDIROutput(LPC_GPIO, (RESET_PIN>>8), (RESET_PIN&0xFF));
@@ -2386,7 +2511,7 @@ class SX1280 {
 
 				Chip_GPIO_SetPinOutHigh(LPC_GPIO, (SPI_CSEL>>8), (SPI_CSEL&0xFF));
 				Chip_GPIO_SetPinOutLow(LPC_GPIO, (SPI_SCLK>>8), (SPI_SCLK&0xFF));
-				
+
 				Reset();
 
 				if (!pollMode) {
@@ -2430,8 +2555,6 @@ class SX1280 {
 				SetDioIrqParams( SX1280::IrqMask, SX1280::IrqMask, IRQ_RADIO_NONE, IRQ_RADIO_NONE );
 				
 		    	SetRx( TickTime { RX_TIMEOUT_TICK_SIZE, RX_TIMEOUT_VALUE } );
-
-				sdd1306 = &_sdd1306;
 			}
 			
 			void SendBuffer() {
@@ -3588,8 +3711,8 @@ class SX1280 {
 			}
 
 			void txDone() {
-				sdd1306->PlaceAsciiStr(0,0,"TXDONE!!");
-				sdd1306->Display();
+				sdd1306.PlaceAsciiStr(0,0,"TXDONE!!");
+				sdd1306.Display();
 				delay(250);
 			}
 
@@ -3599,38 +3722,40 @@ class SX1280 {
 				uint8_t rxBufferSize = 0;
                 GetPayload( rxBuffer, &rxBufferSize, LORA_BUFFER_SIZE );
 
-				sdd1306->PlaceAsciiStr(0,0,"RXDONE!!");
-				sdd1306->Display();
+				sdd1306.PlaceAsciiStr(0,0,"RXDONE!!");
+				rxBuffer[8] = 0;
+				sdd1306.PlaceAsciiStr(0,2,(const char *)rxBuffer);
+				sdd1306.Display();
 				delay(250);
 			}
 
 			void rxSyncWordDone() {
-				sdd1306->PlaceAsciiStr(0,0,"RXSYNCDO");
-				sdd1306->Display();
+				sdd1306.PlaceAsciiStr(0,0,"RXSYNCDO");
+				sdd1306.Display();
 				delay(250);
 			}
 
 			void rxHeaderDone() {
-				sdd1306->PlaceAsciiStr(0,0,"RXHEADER");
-				sdd1306->Display();
+				sdd1306.PlaceAsciiStr(0,0,"RXHEADER");
+				sdd1306.Display();
 				delay(250);
 			}
 			
 			void txTimeout() {
-				sdd1306->PlaceAsciiStr(0,0,"TXTIMOUT");
-				sdd1306->Display();
+				sdd1306.PlaceAsciiStr(0,0,"TXTIMOUT");
+				sdd1306.Display();
 				delay(250);
 			}
 			
 			void rxTimeout() {
-				sdd1306->PlaceAsciiStr(0,0,"RXTIMOUT");
-				sdd1306->Display();
+				sdd1306.PlaceAsciiStr(0,0,"RXTIMOUT");
+				sdd1306.Display();
 				delay(250);
 			}
 			
 			void rxError(IrqErrorCode errCode) {
-				sdd1306->PlaceAsciiStr(0,0,"RXERROR!");
-				sdd1306->Display();
+				sdd1306.PlaceAsciiStr(0,0,"RXERROR!");
+				sdd1306.Display();
 				delay(250);
 			}
 
@@ -3866,43 +3991,45 @@ public:
 		}
 	}
 	
-	void DisplayBar(uint8_t y, uint8_t val, uint8_t range) {
+	void DisplayBar(uint8_t x, uint8_t y, uint8_t w, uint8_t val, uint8_t range) {
 		if (y >= 4) {
 			return;
 		}
-		if (range == 0) {
-			const uint8_t val_to_chr[7*8] = {
-				0x6B, 0x6E, 0x6E, 0x6E, 0x6E, 0x6E, 0x71,
-				0x6D, 0x6E, 0x6E, 0x6E, 0x6E, 0x6E, 0x71,
-				0x6D, 0x70, 0x6E, 0x6E, 0x6E, 0x6E, 0x71,
-				0x6D, 0x70, 0x70, 0x6E, 0x6E, 0x6E, 0x71,
-				0x6D, 0x70, 0x70, 0x70, 0x6E, 0x6E, 0x71,
-				0x6D, 0x70, 0x70, 0x70, 0x70, 0x6E, 0x71,
-				0x6D, 0x70, 0x70, 0x70, 0x70, 0x70, 0x71,
-				0x6D, 0x70, 0x70, 0x70, 0x70, 0x70, 0x73,
-			};
-			for (uint32_t c=0; c<7; c++) {
-				sdd1306.PlaceCustomChar(c+1,y,val_to_chr[val*7+c]);
-			}
-		} else {
-			const uint8_t val_to_chr[7*14] = {
-				0x6B, 0x6E, 0x6E, 0x6E, 0x6E, 0x6E, 0x71,
-				0x6C, 0x6E, 0x6E, 0x6E, 0x6E, 0x6E, 0x71,
-				0x6D, 0x6F, 0x6E, 0x6E, 0x6E, 0x6E, 0x71,
-				0x6D, 0x70, 0x6E, 0x6E, 0x6E, 0x6E, 0x71,
-				0x6D, 0x70, 0x70, 0x6E, 0x6E, 0x6E, 0x71,
-				0x6D, 0x70, 0x70, 0x6E, 0x6E, 0x6E, 0x71,
-				0x6D, 0x70, 0x70, 0x6F, 0x6E, 0x6E, 0x71,
-				0x6D, 0x70, 0x70, 0x70, 0x6E, 0x6E, 0x71,
-				0x6D, 0x70, 0x70, 0x70, 0x6F, 0x6E, 0x71,
-				0x6D, 0x70, 0x70, 0x70, 0x70, 0x6E, 0x71,
-				0x6D, 0x70, 0x70, 0x70, 0x70, 0x6F, 0x71,
-				0x6D, 0x70, 0x70, 0x70, 0x70, 0x70, 0x71,
-				0x6D, 0x70, 0x70, 0x70, 0x70, 0x70, 0x72,
-				0x6D, 0x70, 0x70, 0x70, 0x70, 0x70, 0x73,
-			};
-			for (uint32_t c=0; c<7; c++) {
-				sdd1306.PlaceCustomChar(c+1,y,val_to_chr[val*7+c]);
+		if (w == 7 && x <= 1) {
+			if (range == 0) {
+				const uint8_t val_to_chr[7*8] = {
+					0x6B, 0x6E, 0x6E, 0x6E, 0x6E, 0x6E, 0x71,
+					0x6D, 0x6E, 0x6E, 0x6E, 0x6E, 0x6E, 0x71,
+					0x6D, 0x70, 0x6E, 0x6E, 0x6E, 0x6E, 0x71,
+					0x6D, 0x70, 0x70, 0x6E, 0x6E, 0x6E, 0x71,
+					0x6D, 0x70, 0x70, 0x70, 0x6E, 0x6E, 0x71,
+					0x6D, 0x70, 0x70, 0x70, 0x70, 0x6E, 0x71,
+					0x6D, 0x70, 0x70, 0x70, 0x70, 0x70, 0x71,
+					0x6D, 0x70, 0x70, 0x70, 0x70, 0x70, 0x73,
+				};
+				for (uint32_t c=0; c<7; c++) {
+					sdd1306.PlaceCustomChar(c+x,y,val_to_chr[val*7+c]);
+				}
+			} else {
+				const uint8_t val_to_chr[7*14] = {
+					0x6B, 0x6E, 0x6E, 0x6E, 0x6E, 0x6E, 0x71,
+					0x6C, 0x6E, 0x6E, 0x6E, 0x6E, 0x6E, 0x71,
+					0x6D, 0x6F, 0x6E, 0x6E, 0x6E, 0x6E, 0x71,
+					0x6D, 0x70, 0x6E, 0x6E, 0x6E, 0x6E, 0x71,
+					0x6D, 0x70, 0x70, 0x6E, 0x6E, 0x6E, 0x71,
+					0x6D, 0x70, 0x70, 0x6E, 0x6E, 0x6E, 0x71,
+					0x6D, 0x70, 0x70, 0x6F, 0x6E, 0x6E, 0x71,
+					0x6D, 0x70, 0x70, 0x70, 0x6E, 0x6E, 0x71,
+					0x6D, 0x70, 0x70, 0x70, 0x6F, 0x6E, 0x71,
+					0x6D, 0x70, 0x70, 0x70, 0x70, 0x6E, 0x71,
+					0x6D, 0x70, 0x70, 0x70, 0x70, 0x6F, 0x71,
+					0x6D, 0x70, 0x70, 0x70, 0x70, 0x70, 0x71,
+					0x6D, 0x70, 0x70, 0x70, 0x70, 0x70, 0x72,
+					0x6D, 0x70, 0x70, 0x70, 0x70, 0x70, 0x73,
+				};
+				for (uint32_t c=0; c<7; c++) {
+					sdd1306.PlaceCustomChar(c+x,y,val_to_chr[val*7+c]);
+				}
 			}
 		}
 	}
@@ -3939,9 +4066,9 @@ public:
 		sdd1306.PlaceCustomChar(6,0,0xAF);
 		sdd1306.PlaceCustomChar(7,0,0xA0+(system_clock_ms/0x400)%8);
 		sdd1306.PlaceCustomChar(0,1,0x65);
-		DisplayBar(1,uint8_t(settings.brightness), 0);
+		DisplayBar(1,1,7,uint8_t(settings.brightness), 0);
 		sdd1306.PlaceCustomChar(0,2,0x66);
-		DisplayBar(2,(NormBatteryChargeForBar() * 14 / 255), 1);
+		DisplayBar(1,2,7,(NormBatteryChargeForBar() * 14 / 255), 1);
 		sdd1306.PlaceCustomChar(0,3,0x67);
 		char str[8];
 		sprintf(str,"[%02d/%02d]",settings.program_curr,settings.program_count);
@@ -4109,13 +4236,11 @@ private:
 	bool post_frame(uint32_t ms) {
 		post_clock_ms = system_clock_ms + ms;
 
-		spi.push_frame(leds, settings.brightness);
-
 		if (sdd1306.DevicePresent()) {
 			ui.Display();
 		}
 
-		for ( ; ; ) {
+		for (;;) {
 			if (past_post_time) {
 				past_post_time = false;
 				return break_effect();
@@ -4130,7 +4255,7 @@ private:
 	}
 	
 	void color_ring() {
-		for (; ;) {
+		for (;;) {
 			for (uint32_t d = 0; d < 8; d++) {
 				leds.set_ring(d, settings.ring_color);
 			}
@@ -4146,7 +4271,9 @@ private:
 	}
 
 	void fade_ring() {
-		for (; ;) {
+		uint8_t walk = 0;
+		for (;;) {
+			/*
 			rgba color;
 			const rgba &rc = settings.ring_color;
 			color = rgba(max(rc.r()-0x20UL,0UL), max(rc.g()-0x20UL,0UL), max(rc.b()-0x20UL,0UL));
@@ -4166,7 +4293,11 @@ private:
 			for (uint32_t d = 0; d < 4; d++) {
 				leds.set_bird(d, settings.bird_color);
 			}
-
+			*/
+			
+			for (uint32_t d = 0; d < 8; d++) {
+				leds.set_ring(d, 8, 0, 0);
+			}
 			if (post_frame(5)) {
 				return;
 			}
@@ -4178,18 +4309,17 @@ private:
 		static uint8_t work_buffer[0x80] = { 0 };
 
 		for (uint32_t c = 0; c < 0x80; c++) {
-			work_buffer[c] = max(0UL,(sine_wave[c] - 0x80UL) - 0x20UL) ;
+			work_buffer[c] = max(0UL,(sine_wave[c] - 0x80UL) - 0x20UL);
 		}
 
 		uint32_t walk = 0;
 		uint32_t rgb_walk = 0;
 		for (;;) {
-
 			rgba color = rgba::hsvToRgb(rgb_walk/3, 255, 255);
 			for (uint32_t d = 0; d < 8; d++) {
-				leds.set_ring(d, (work_buffer[(((0x80/8)*d) + walk)&0x7F] * ((color.r())&0xFF)) >> 8,
-						 	     (work_buffer[(((0x80/8)*d) + walk)&0x7F] * ((color.g())&0xFF)) >> 8,
-						 		 (work_buffer[(((0x80/8)*d) + walk)&0x7F] * ((color.b())&0xFF)) >> 8);
+				leds.set_ring(d, min(0x80,(work_buffer[(((0x80/8)*d) + walk)&0x7F] * ((color.r())&0xFF)) >> 8),
+						 	     min(0x80,(work_buffer[(((0x80/8)*d) + walk)&0x7F] * ((color.g())&0xFF)) >> 8),
+						 		 min(0x80,(work_buffer[(((0x80/8)*d) + walk)&0x7F] * ((color.b())&0xFF)) >> 8));
 			}
 
 			for (uint32_t d = 0; d < 4; d++) {
@@ -4240,7 +4370,6 @@ private:
 		int32_t switch_dir = 1;
 		uint32_t switch_counter = 0;
 		for (;;) {
-
 			for (uint32_t d = 0; d < 8; d++) {
 				leds.set_ring(d,0,0,0);
 			}
@@ -4288,7 +4417,6 @@ private:
 		gradient[0] = rgba(max(rc.ru(),0x40UL), max(rc.gu(),0x40UL), max(rc.bu(),0x40UL));
 
 		for (;;) {
-
 			for (uint32_t d = 0; d < 8; d++) {
 				leds.set_ring((walk+d)&0x7, gradient[d]);
 			}
@@ -4311,7 +4439,6 @@ private:
 		int32_t switch_dir = 1;
 		uint32_t switch_counter = 0;
 		for (;;) {
-
 			for (uint32_t d = 0; d < 8; d++) {
 				leds.set_ring(d,0,0,0);
 			}
@@ -4346,7 +4473,6 @@ private:
 		int32_t switch_dir = 1;
 		uint32_t switch_counter = 0;
 		for (;;) {
-
 			for (uint32_t d = 0; d < 8; d++) {
 				leds.set_ring(d,0,0,0);
 			}
@@ -4424,7 +4550,6 @@ private:
 		};
 
 		for (;;) {
-
 			for (uint32_t d = 0; d < 8; d++) {
 				leds.set_ring(d,0,0,0);
 			}
@@ -4464,7 +4589,6 @@ private:
 	void rgb_vertical_wall() {
 		uint32_t rgb_walk = 0;
 		for (;;) {
-
 			rgba color;
 			color = rgba::hsvToRgb(((rgb_walk+  0)/3)%360, 255, 255);
 			leds.set_ring_synced(0, (color / 4UL));
@@ -4942,7 +5066,6 @@ private:
 		int32_t nb = 0;
 
 		for (; ;) {
-
 			if (index >= 600) {
 				if (index == 600) {
 					cr = r;
@@ -5221,7 +5344,6 @@ private:
 	}
 
 	void red() {
-
 		int32_t wait = 1200;
 
 		int32_t index = 0;
@@ -5298,13 +5420,17 @@ static UI *g_ui = 0;
 static Effects *g_effects = 0;
 static SX1280 *g_sx1280 = 0;
 static SDD1306 *g_sdd1306 = 0;
+static EEPROM *g_settings = 0;
+static Flash *g_flash = 0;
 
 extern "C" {
 	
 	void SysTick_Handler(void)
 	{	
 		system_clock_ms++;
-		
+
+		g_spi->push_frame(*g_leds, g_settings->brightness);
+
 		if ( (system_clock_ms % (1024*32)) == 0) {
 			g_ui->SetMode(system_clock_ms, 1);
 		}
@@ -5314,7 +5440,7 @@ extern "C" {
 		}
 		
 		if ( (system_clock_ms % (4096)) == 0) {
-			g_sx1280->SendBeacon();
+			//g_sx1280->SendBeacon();
 		}
 		
 		g_effects->CheckPostTime();
@@ -5371,8 +5497,8 @@ int main(void)
 {
 	SystemCoreClockUpdate();
 
-	SDD1306 sdd1306;
-	g_sdd1306 = &sdd1306;
+	SDD1306 sdd1306; g_sdd1306 = &sdd1306;
+	
 	BQ24295 bq24295;
 
 	Setup setup(sdd1306, bq24295);
@@ -5388,14 +5514,13 @@ int main(void)
 	delay(50);
 	
 	EEPROM settings;
+	g_settings = &settings;
 	
-	SPI spi;
-	g_spi = &spi;
+	SPI spi; g_spi = &spi;
 
-	LEDs leds;
-	g_leds = &leds;
+	LEDs leds; g_leds = &leds;
 	
-	spi.push_frame(leds, 0);
+	spi.push_null();
 
 	if (sdd1306.DevicePresent()) {
 		sdd1306.Init(); 
@@ -5434,7 +5559,7 @@ int main(void)
 		sdd1306.SetVerticalShift(0);
 		sdd1306.SetCenterFlip(0);
 	}
-
+	
 	settings.Load();
 	
 	UI ui(settings, sdd1306);
@@ -5444,22 +5569,15 @@ int main(void)
 	
 	Random random(0xCAFFE);
 
-#ifndef NO_FLASH
-//	flash_storage.init();
-#endif  // #ifndef NO_FLASH
-
-	SX1280 sx1280;
+	Flash flash; g_flash = &flash;
 	
-	g_sx1280 = &sx1280;
-	
-	sx1280.Init(sdd1306, false);
+	SX1280 sx1280(sdd1306); g_sx1280 = &sx1280;
+	sx1280.Init(false);
 	
 	// start 1ms timer
 	SysTick_Config(SystemCoreClock / 1000);
 
-	Effects effects(settings, random, leds, spi, sdd1306, ui);
-	
-	g_effects = &effects;
+	Effects effects(settings, random, leds, spi, sdd1306, ui); g_effects = &effects;
 
 	effects.RunForever();
 	
