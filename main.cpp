@@ -545,6 +545,10 @@ struct rgba {
 	uint8_t r() const { return ((rgbp>>16)&0xFF); };
 	uint8_t g() const { return ((rgbp>> 8)&0xFF); };
 	uint8_t b() const { return ((rgbp>> 0)&0xFF); };
+
+	int32_t ri() const { return int32_t((rgbp>>16)&0xFF); };
+	int32_t gi() const { return int32_t((rgbp>> 8)&0xFF); };
+	int32_t bi() const { return int32_t((rgbp>> 0)&0xFF); };
 	
 	uint32_t ru() const { return uint32_t((rgbp>>16)&0xFF); };
 	uint32_t gu() const { return uint32_t((rgbp>> 8)&0xFF); };
@@ -735,34 +739,64 @@ public:
 
 volatile uint32_t I2C_Guard::i2c_guard = 0;
 
-class Flash {
+class FT25H16S {
 
 public:
 	const uint32_t FLASH_MOSI0_PIN = 0x0009; // 0_9
 	const uint32_t FLASH_MISO0_PIN = 0x0008; // 0_8
 	const uint32_t FLASH_SCK0_PIN = 0x000A; // 0_10
 	const uint32_t FLASH_CSEL_PIN = 0x011F; // 1_31
-	const uint32_t ALT_SCK0_PIN = 0x011D; // 1_29
+	const uint32_t FLASH_HOLD_PIN = 0x0115; // 1_21
 
-	Flash() {
-		// CSEL
-		Chip_IOCON_PinMuxSet(LPC_IOCON, (FLASH_CSEL_PIN>>8), (FLASH_CSEL_PIN&0xFF), IOCON_FUNC2);
+	FT25H16S() {
+		// CS#
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (FLASH_CSEL_PIN>>8), (FLASH_CSEL_PIN&0xFF), IOCON_FUNC0);
+		Chip_GPIO_SetPinDIROutput(LPC_GPIO, (FLASH_CSEL_PIN>>8), (FLASH_CSEL_PIN&0xFF));
 		// MISO0
-		Chip_IOCON_PinMuxSet(LPC_IOCON, (FLASH_MISO0_PIN>>8), (FLASH_MISO0_PIN&0xFF), IOCON_FUNC2);
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (FLASH_MISO0_PIN>>8), (FLASH_MISO0_PIN&0xFF), IOCON_FUNC0);
+		Chip_GPIO_SetPinDIRInput(LPC_GPIO, (FLASH_MISO0_PIN>>8), (FLASH_MISO0_PIN&0xFF));
 		// SCK0
-		Chip_IOCON_PinMuxSet(LPC_IOCON, (FLASH_SCK0_PIN>>8), (FLASH_SCK0_PIN&0xFF), IOCON_FUNC0);
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (FLASH_SCK0_PIN>>8), (FLASH_SCK0_PIN&0xFF), IOCON_FUNC1);
+		Chip_GPIO_SetPinDIROutput(LPC_GPIO, (FLASH_SCK0_PIN>>8), (FLASH_SCK0_PIN&0xFF));
 		// MOSI0
-		Chip_IOCON_PinMuxSet(LPC_IOCON, (FLASH_MOSI0_PIN>>8), (FLASH_MOSI0_PIN&0xFF), IOCON_FUNC1);
-		// Set to GPIO, shared with leds
-		Chip_IOCON_PinMuxSet(LPC_IOCON, (ALT_SCK0_PIN>>8), (ALT_SCK0_PIN&0xFF), IOCON_FUNC0);
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (FLASH_MOSI0_PIN>>8), (FLASH_MOSI0_PIN&0xFF), IOCON_FUNC0);
+		Chip_GPIO_SetPinDIROutput(LPC_GPIO, (FLASH_MOSI0_PIN>>8), (FLASH_MOSI0_PIN&0xFF));
+		// HOLD#
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (FLASH_HOLD_PIN>>8), (FLASH_HOLD_PIN&0xFF), IOCON_FUNC0);
+		Chip_GPIO_SetPinDIROutput(LPC_GPIO, (FLASH_HOLD_PIN>>8), (FLASH_HOLD_PIN&0xFF));
+	}
+	
+	uint32_t read_device_id() {
+		// MOSI0
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (FLASH_MOSI0_PIN>>8), (FLASH_MOSI0_PIN&0xFF), IOCON_FUNC0);
+
+		// HOLD to high
+		Chip_GPIO_SetPinState(LPC_GPIO, (FLASH_HOLD_PIN>>8), (FLASH_HOLD_PIN&0xFF), true);
+		// CSEL to low
+		Chip_GPIO_SetPinState(LPC_GPIO, (FLASH_CSEL_PIN>>8), (FLASH_CSEL_PIN&0xFF), false);
+
+		push_byte(0x90);
+		push_byte(0x00);
+		push_byte(0x00);
+		push_byte(0x00);
+		
+		uint32_t ret = 0;
+		ret |= read_byte() << 16;
+		ret |= read_byte() <<  8;
+		ret |= read_byte() <<  0;
+
+		// CSEL to high
+		Chip_GPIO_SetPinState(LPC_GPIO, (FLASH_CSEL_PIN>>8), (FLASH_CSEL_PIN&0xFF), true);
+		
+		return ret;
 	}
 	
 	void read_data(uint32_t address, uint8_t *ptr, uint32_t size) {
 		// MOSI0
-		Chip_IOCON_PinMuxSet(LPC_IOCON, (FLASH_MOSI0_PIN>>8), (FLASH_MOSI0_PIN&0xFF), IOCON_FUNC1);
-		// Set to GPIO, shared with leds
-		Chip_IOCON_PinMuxSet(LPC_IOCON, (ALT_SCK0_PIN>>8), (ALT_SCK0_PIN&0xFF), IOCON_FUNC0);
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (FLASH_MOSI0_PIN>>8), (FLASH_MOSI0_PIN&0xFF), IOCON_FUNC0);
 
+		// HOLD to high
+		Chip_GPIO_SetPinState(LPC_GPIO, (FLASH_HOLD_PIN>>8), (FLASH_HOLD_PIN&0xFF), true);
 		// CSEL to low
 		Chip_GPIO_SetPinState(LPC_GPIO, (FLASH_CSEL_PIN>>8), (FLASH_CSEL_PIN&0xFF), false);
 
@@ -781,13 +815,14 @@ public:
 
 	void write_data(uint32_t address, uint8_t *ptr, uint32_t size) {
 		// MOSI0
-		Chip_IOCON_PinMuxSet(LPC_IOCON, (FLASH_MOSI0_PIN>>8), (FLASH_MOSI0_PIN&0xFF), IOCON_FUNC1);
-		// Set to GPIO, shared with leds
-		Chip_IOCON_PinMuxSet(LPC_IOCON, (ALT_SCK0_PIN>>8), (ALT_SCK0_PIN&0xFF), IOCON_FUNC0);
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (FLASH_MOSI0_PIN>>8), (FLASH_MOSI0_PIN&0xFF), IOCON_FUNC0);
 
 		// CSEL to low
 		Chip_GPIO_SetPinState(LPC_GPIO, (FLASH_CSEL_PIN>>8), (FLASH_CSEL_PIN&0xFF), false);
+		// HOLD to high
+		Chip_GPIO_SetPinState(LPC_GPIO, (FLASH_HOLD_PIN>>8), (FLASH_HOLD_PIN&0xFF), true);
 
+		push_byte(0x06);
 		push_byte(0x02);
 		push_byte((address>>16)&0xFF);
 		push_byte((address>> 8)&0xFF);
@@ -803,14 +838,29 @@ public:
 
 private:
 
-	void push_byte(uint8_t byte) {
-		while(!Chip_SSP_GetStatus(LPC_SSP0, SSP_STAT_TNF));
-		Chip_SSP_SendFrame(LPC_SSP0, byte);
+	void push_byte(uint32_t byte) {
+		spiwrite(byte);
 	}
 
-	uint8_t read_byte() {
-		while(!Chip_SSP_GetStatus(LPC_SSP0, SSP_STAT_RNE));
-		return Chip_SSP_ReceiveFrame(LPC_SSP0);
+	uint32_t read_byte() {
+		return spiwrite(0);
+	}
+
+	uint8_t spiwrite(uint8_t val) {
+		Chip_GPIO_SetPinOutLow(LPC_GPIO, (FLASH_SCK0_PIN>>8), (FLASH_SCK0_PIN&0xFF));
+		uint8_t read_value = 0;
+		for (uint32_t c=0; c<8; c++) {
+			read_value <<= 1;
+			Chip_GPIO_SetPinOutLow(LPC_GPIO, (FLASH_SCK0_PIN>>8), (FLASH_SCK0_PIN&0xFF));
+			if ((val&(1<<(7-c)))) {
+				Chip_GPIO_SetPinOutHigh(LPC_GPIO, (FLASH_MOSI0_PIN>>8), (FLASH_MOSI0_PIN&0xFF));
+			} else {
+				Chip_GPIO_SetPinOutLow(LPC_GPIO, (FLASH_MOSI0_PIN>>8), (FLASH_MOSI0_PIN&0xFF));
+			}
+			read_value |= Chip_GPIO_GetPinState(LPC_GPIO, (FLASH_MISO0_PIN>>8), (FLASH_MISO0_PIN&0xFF));
+			Chip_GPIO_SetPinOutHigh(LPC_GPIO, (FLASH_SCK0_PIN>>8),(FLASH_SCK0_PIN&0xFF));
+		}
+		return read_value;
 	}
 };
 
@@ -1013,15 +1063,10 @@ public:
 	const uint32_t BOTTOM_LED_MOSI0_PIN = 0x0009; // 0_9
 	const uint32_t BOTTOM_LED_SCK0_PIN = 0x011D; // 1_29
 
-	const uint32_t ALT_SCK0_PIN = 0x000A; // 0_10
-
 	const uint32_t TOP_LED_MOSI1_PIN = 0x0116; // 1_22
 	const uint32_t TOP_LED_SCK1_PIN = 0x010F; // 1_15
 
 	SPI() {
-		// Set to GPIO, shared with flash chip
-		Chip_IOCON_PinMuxSet(LPC_IOCON, (ALT_SCK0_PIN>>8), (ALT_SCK0_PIN&0xFF), IOCON_FUNC0);
-
 		// MOSI0
 		Chip_IOCON_PinMuxSet(LPC_IOCON, (BOTTOM_LED_MOSI0_PIN>>8), (BOTTOM_LED_MOSI0_PIN&0xFF), IOCON_FUNC1);
 		// SCK0
@@ -1046,11 +1091,8 @@ public:
 	}
 
 	void push_frame(LEDs &leds, int32_t brightness = 0x01)  {
-	
-		// Set to GPIO, shared with flash chip
-		Chip_IOCON_PinMuxSet(LPC_IOCON, (ALT_SCK0_PIN>>8), (ALT_SCK0_PIN&0xFF), IOCON_FUNC0);
-		// SCK0
-		Chip_IOCON_PinMuxSet(LPC_IOCON, (BOTTOM_LED_SCK0_PIN>>8), (BOTTOM_LED_SCK0_PIN&0xFF), IOCON_FUNC1);
+		// MOSI0
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (BOTTOM_LED_MOSI0_PIN>>8), (BOTTOM_LED_MOSI0_PIN&0xFF), IOCON_FUNC1);
 
 		// Set format again
 		Chip_SSP_SetClockRate(LPC_SSP0, 0, 2);
@@ -1070,12 +1112,12 @@ public:
 		for (int32_t c=0; c<HALF_LEDS; c++) {
 			push_byte_top(0xE0 | max(0L, (brightness * 2) - 1) );
 			push_byte_btm(0xE0 | max(0L, (brightness * 2) - 1) );
-			push_byte_top(leds.led_data[HALF_LEDS*0*3 + c*3+2]);
-			push_byte_btm(leds.led_data[HALF_LEDS*1*3 + c*3+2]);
-			push_byte_top(leds.led_data[HALF_LEDS*0*3 + c*3+0]);
-			push_byte_btm(leds.led_data[HALF_LEDS*1*3 + c*3+0]);
-			push_byte_top(leds.led_data[HALF_LEDS*0*3 + c*3+1]);
-			push_byte_btm(leds.led_data[HALF_LEDS*1*3 + c*3+1]);
+			push_byte_top((leds.led_data[HALF_LEDS*0*3 + c*3+2] & ~(3)) + 4);
+			push_byte_btm((leds.led_data[HALF_LEDS*1*3 + c*3+2] & ~(3)) + 4);
+			push_byte_top((leds.led_data[HALF_LEDS*0*3 + c*3+0] & ~(3)) + 4);
+			push_byte_btm((leds.led_data[HALF_LEDS*1*3 + c*3+0] & ~(3)) + 4);
+			push_byte_top((leds.led_data[HALF_LEDS*0*3 + c*3+1] & ~(3)) + 4);
+			push_byte_btm((leds.led_data[HALF_LEDS*1*3 + c*3+1] & ~(3)) + 4);
 		}
 
 		// End frame
@@ -1090,11 +1132,8 @@ public:
 	}
 
 	void push_null()  {
-	
-		// Set to GPIO, shared with flash chip
-		Chip_IOCON_PinMuxSet(LPC_IOCON, (ALT_SCK0_PIN>>8), (ALT_SCK0_PIN&0xFF), IOCON_FUNC0);
-		// SCK0
-		Chip_IOCON_PinMuxSet(LPC_IOCON, (BOTTOM_LED_SCK0_PIN>>8), (BOTTOM_LED_SCK0_PIN&0xFF), IOCON_FUNC1);
+		// MOSI0
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (BOTTOM_LED_MOSI0_PIN>>8), (BOTTOM_LED_MOSI0_PIN&0xFF), IOCON_FUNC1);
 
 		// Set format again
 		Chip_SSP_SetClockRate(LPC_SSP0, 0, 2);
@@ -4273,31 +4312,27 @@ private:
 	void fade_ring() {
 		uint8_t walk = 0;
 		for (;;) {
-			/*
+
 			rgba color;
 			const rgba &rc = settings.ring_color;
-			color = rgba(max(rc.r()-0x20UL,0UL), max(rc.g()-0x20UL,0UL), max(rc.b()-0x20UL,0UL));
+			color = rgba(max(rc.ri()-0x40,0L), max(rc.gi()-0x40,0L), max(rc.bi()-0x40,0L));
 			leds.set_ring(0, color);
-			color = rgba(max(rc.r()-0x1AUL,0UL), max(rc.g()-0x1AUL,0UL), max(rc.b()-0x1AUL,0UL));
+			color = rgba(max(rc.ri()-0x3A,0L), max(rc.gi()-0x3A,0L), max(rc.bi()-0x3A,0L));
 			leds.set_ring(1, color);
 			leds.set_ring(7, color);
-			color = rgba(max(rc.r()-0x18UL,0UL), max(rc.g()-0x18UL,0UL), max(rc.b()-0x18UL,0UL));
+			color = rgba(max(rc.ri()-0x28,0L), max(rc.gi()-0x28,0L), max(rc.bi()-0x28,0L));
 			leds.set_ring(2, color);
 			leds.set_ring(6, color);
-			color = rgba(max(rc.r()-0x10UL,0UL), max(rc.g()-0x10UL,0UL), max(rc.b()-0x10UL,0UL));
+			color = rgba(max(rc.ri()-0x20,0L), max(rc.gi()-0x20,0L), max(rc.bi()-0x20,0L));
 			leds.set_ring(3, color);
 			leds.set_ring(5, color);
-			color = rgba(max(rc.r()-0x00UL,0UL), max(rc.g()-0x00UL,0UL), max(rc.b()-0x00UL,0UL));
+			color = rgba(max(rc.ri()-0x00,0L), max(rc.gi()-0x00,0L), max(rc.bi()-0x00,0L));
 			leds.set_ring(4, color);
 
 			for (uint32_t d = 0; d < 4; d++) {
 				leds.set_bird(d, settings.bird_color);
 			}
-			*/
 			
-			for (uint32_t d = 0; d < 8; d++) {
-				leds.set_ring(d, 8, 0, 0);
-			}
 			if (post_frame(5)) {
 				return;
 			}
@@ -4407,14 +4442,14 @@ private:
 
 		rgba gradient[8];
 		const rgba &rc = settings.ring_color;
-		gradient[7] = rgba(max(rc.ru()-0x40UL,0UL), max(rc.gu()-0x40UL,0UL), max(rc.bu()-0x40UL,0UL));
-		gradient[6] = rgba(max(rc.ru()-0x40UL,0UL), max(rc.gu()-0x40UL,0UL), max(rc.bu()-0x40UL,0UL));
-		gradient[5] = rgba(max(rc.ru()-0x30UL,0UL), max(rc.gu()-0x30UL,0UL), max(rc.bu()-0x30UL,0UL));
-		gradient[4] = rgba(max(rc.ru()-0x18UL,0UL), max(rc.gu()-0x18UL,0UL), max(rc.bu()-0x18UL,0UL));
-		gradient[3] = rgba(max(rc.ru()-0x00UL,0UL), max(rc.gu()-0x00UL,0UL), max(rc.bu()-0x00UL,0UL));
-		gradient[2] = rgba(max(rc.ru(),0x10UL), max(rc.gu(),0x00UL), max(rc.bu(),0x20UL));
-		gradient[1] = rgba(max(rc.ru(),0x30UL), max(rc.gu(),0x30UL), max(rc.bu(),0x30UL));
-		gradient[0] = rgba(max(rc.ru(),0x40UL), max(rc.gu(),0x40UL), max(rc.bu(),0x40UL));
+		gradient[7] = rgba(max(rc.r()-0x40,0x00), max(rc.g()-0x40,0x00), max(rc.b()-0x40,0x00));
+		gradient[6] = rgba(max(rc.r()-0x40,0x00), max(rc.g()-0x40,0x00), max(rc.b()-0x40,0x00));
+		gradient[5] = rgba(max(rc.r()-0x30,0x00), max(rc.g()-0x30,0x00), max(rc.b()-0x30,0x00));
+		gradient[4] = rgba(max(rc.r()-0x18,0x00), max(rc.g()-0x18,0x00), max(rc.b()-0x18,0x00));
+		gradient[3] = rgba(max(rc.r()-0x00,0x00), max(rc.g()-0x00,0x00), max(rc.b()-0x00,0x00));
+		gradient[2] = rgba(max(rc.r()-0x00,0x10), max(rc.g()-0x00,0x00), max(rc.b()-0x00,0x20));
+		gradient[1] = rgba(max(rc.r()-0x00,0x30), max(rc.g()-0x00,0x30), max(rc.b()-0x00,0x30));
+		gradient[0] = rgba(max(rc.r()-0x00,0x40), max(rc.g()-0x00,0x40), max(rc.b()-0x00,0x40));
 
 		for (;;) {
 			for (uint32_t d = 0; d < 8; d++) {
@@ -4499,7 +4534,7 @@ private:
 				walk += switch_dir;
 			}
 
-			if (post_frame(50)) {
+			if (post_frame(75)) {
 				return;
 			}
 		}
@@ -4782,7 +4817,7 @@ private:
 			}
 
 			int index = random.get(0,16);
-			leds.set_ring_all(index,random.get(0x00,0x10),random.get(0x00,0x10),random.get(0,0x10));
+			leds.set_ring_all(index,random.get(0x00,0x40),random.get(0x00,0x40),random.get(0,0x40));
 
 			for (uint32_t d = 0; d < 4; d++) {
 				leds.set_bird(d, settings.bird_color);
@@ -4910,7 +4945,7 @@ private:
 			bool active;
 			int32_t wait;
 			int32_t index;
-			uint32_t progress;
+			int32_t progress;
 			bool lightordark;
 		} tingles[NUM_TINGLES];
 
@@ -4953,23 +4988,23 @@ private:
 				} else if (tingles[c].wait > 0) {
 					tingles[c].wait --;
 				} else {
-					uint32_t r = 0,g = 0,b = 0;
-					uint32_t progress = tingles[c].progress;
+					int32_t r = 0,g = 0,b = 0;
+					int32_t progress = tingles[c].progress;
 					if (progress > 8) {
 						progress -= 8;
 						progress = 8 - progress;
 					}
 					if (tingles[c].lightordark) {
-						r = max(settings.ring_color.ru(),progress*8);
-						g = max(settings.ring_color.gu(),progress*8);
-						b = max(settings.ring_color.bu(),progress*8);					
+						r = max(settings.ring_color.ri(),progress*int32_t(8));
+						g = max(settings.ring_color.gi(),progress*int32_t(8));
+						b = max(settings.ring_color.bi(),progress*int32_t(8));					
 					} else {
-						r = (settings.ring_color.r())-progress*8;
-						g = (settings.ring_color.g())-progress*8;
-						b = (settings.ring_color.b())-progress*8;
-						r = max(r,0UL);
-						g = max(g,0UL);
-						b = max(b,0UL);					
+						r = (settings.ring_color.ri())-progress*int32_t(8);
+						g = (settings.ring_color.gi())-progress*int32_t(8);
+						b = (settings.ring_color.bi())-progress*int32_t(8);
+						r = max(r,int32_t(0));
+						g = max(g,int32_t(0));
+						b = max(b,int32_t(0));					
 					}
 					leds.set_ring_all(tingles[c].index, r, g, b);
 					tingles[c].progress++;
@@ -5421,7 +5456,7 @@ static Effects *g_effects = 0;
 static SX1280 *g_sx1280 = 0;
 static SDD1306 *g_sdd1306 = 0;
 static EEPROM *g_settings = 0;
-static Flash *g_flash = 0;
+static FT25H16S *g_ft25h16s = 0;
 
 extern "C" {
 	
@@ -5566,10 +5601,18 @@ int main(void)
 	// For IRQ handlers only
 	g_ui = &ui;
 	ui.Init();
-	
+	 
 	Random random(0xCAFFE);
-
-	Flash flash; g_flash = &flash;
+	
+	FT25H16S ft25h16s; g_ft25h16s = &ft25h16s;
+	
+/*	{
+		char str[16];
+		sprintf(str, "%08x", ft25h16s.read_device_id());
+		sdd1306.PlaceAsciiStr(0,0,str);
+		sdd1306.Display();
+		delay(500);
+	}*/
 	
 	SX1280 sx1280(sdd1306); g_sx1280 = &sx1280;
 	sx1280.Init(false);
