@@ -496,6 +496,8 @@ static int usb_init()
 			USBD_API->hw->Connect(g_hUsb, 1);
 		}
 	}
+	
+	return 0;
 }
 
 namespace std {
@@ -676,6 +678,21 @@ static const uint32_t ring_colors[] = {
 	0x303030UL,
 	0x202020UL
 };
+
+static const uint32_t radio_colors[] = {
+	0x808080UL,
+	0xA00000UL,
+	0x00A000UL,
+	0x0000A0UL,
+	0x909000UL,
+	0x009090UL,
+	0x900090UL,
+	0x906020UL,
+	0x206090UL,
+	0x602090UL,
+	0x902060UL,
+};
+
 
 static void delay(uint32_t ms) {
     for (volatile uint32_t j = 0; j < ms; j++) {
@@ -878,6 +895,20 @@ public:
 		bird_color = rgba(bird_colors[bird_color_index]);
 		ring_color_index = 5;
 		ring_color = rgba(ring_colors[ring_color_index]);
+		radio_enabled = true;
+		radio_message = 0;
+		radio_color = 0;
+		
+		memcpy(radio_messages[0], " QUACK! ", 8);
+		memcpy(radio_messages[1], "  NOW!  ", 8);
+		memcpy(radio_messages[2], "  BAR!  ", 8);
+		memcpy(radio_messages[3], "LIGHTS! ", 8);
+		memcpy(radio_messages[4], " CAMP!  ", 8);
+		memcpy(radio_messages[5], "IM DRUNK", 8);
+		memcpy(radio_messages[6], "IM HIGH!", 8);
+		memcpy(radio_messages[7], "IM GONE!", 8);
+
+		memcpy(&radio_name[0], "  DUCK  ", 8);
 	}
 
 	void Load() {
@@ -896,7 +927,9 @@ public:
 			ring_color == 0UL ||
 			ring_color_index > 16 ||
 			brightness == 0 ||
-			brightness >= 8 ) {
+			brightness >= 8 ||
+			radio_messages[0][0] < 0x20 ||
+			radio_name[0] < 0x20) {
 				
 			bird_color_index = 0;
 			bird_color = bird_colors[bird_color_index];
@@ -906,6 +939,21 @@ public:
 			program_curr = 0;
 			program_change_count = 0;
 			brightness = 1;
+			radio_enabled = true;
+			radio_message = 0;
+			radio_color = 0;
+			
+			memcpy(radio_messages[0], " QUACK! ", 8);
+			memcpy(radio_messages[1], "  NOW!  ", 8);
+			memcpy(radio_messages[2], "  BAR!  ", 8);
+			memcpy(radio_messages[3], "LIGHTS! ", 8);
+			memcpy(radio_messages[4], " CAMP!  ", 8);
+			memcpy(radio_messages[5], "IM DRUNK", 8);
+			memcpy(radio_messages[6], "IM HIGH!", 8);
+			memcpy(radio_messages[7], "IM GONE!", 8);
+			
+			memcpy(&radio_name[0], "  DUCK  ", 8);
+			
 			Save();
 		}
 		
@@ -952,6 +1000,17 @@ public:
 	rgba ring_color;
 	uint32_t ring_color_index;
 	uint32_t brightness;
+	
+	uint32_t radio_enabled;
+	uint32_t radio_message;
+	uint32_t radio_color;
+	char 	 radio_name[8];
+	char 	 radio_messages[8][8];
+	
+	char 	 recv_radio_name[8];
+	char 	 recv_radio_message[8];
+	uint32_t recv_radio_color;
+	uint32_t recv_radio_message_pending;
 };
 
 bool EEPROM::loaded = 0;
@@ -1456,6 +1515,10 @@ class SDD1306 {
 				center_flip_cache = 0;
 			}
 			
+			void ClearAttr() {
+				memset(text_attr_cache, 0, sizeof(text_attr_cache));
+			}
+			
 			void DisplayBootScreen() {
 				for (uint32_t c=0; c<8*4; c++) {
 					text_buffer_cache[c] = 0x80 + c;
@@ -1475,7 +1538,7 @@ class SDD1306 {
 				}
 			}
 
-			void PlaceCustomChar(uint32_t x, uint32_t y, uint8_t code) {
+			void PlaceCustomChar(uint32_t x, uint32_t y, uint16_t code) {
 				if (y>3 || x>7) return;
 				text_buffer_cache[y*8+x] = code;
 			}
@@ -1644,7 +1707,7 @@ class SDD1306 {
 				} 
 			}
 
-			void DisplayChar(uint32_t x, uint32_t y, char ch, uint8_t attr) {
+			void DisplayChar(uint32_t x, uint32_t y, uint16_t ch, uint8_t attr) {
 				I2C_Guard guard;
 				if (guard.Check()) {
 					return;
@@ -1722,8 +1785,8 @@ class SDD1306 {
 
 			int8_t center_flip_screen;
 			int8_t center_flip_cache;
-			uint8_t text_buffer_cache[8*4];
-			uint8_t text_buffer_screen[8*4];
+			uint16_t text_buffer_cache[8*4];
+			uint16_t text_buffer_screen[8*4];
 			uint8_t text_attr_cache[8*4];
 			uint8_t text_attr_screen[8*4];
 };  // class SDD1306
@@ -1740,6 +1803,7 @@ class Setup {
 			}
 
 	private:
+	
             void InitWWDT() {
                 Chip_WWDT_Init(LPC_WWDT);
 
@@ -1770,6 +1834,8 @@ class Setup {
 			}
 			
 			void InitPININT() {
+				Chip_Clock_EnablePeriphClock(SYSCTL_CLOCK_PINT);
+				
 				Chip_PININT_Init(LPC_PININT);
 				Chip_PININT_EnableIntHigh(LPC_PININT, 0);
 				Chip_PININT_EnableIntLow(LPC_PININT, 0);
@@ -2498,9 +2564,9 @@ class SX1280 {
 			const uint32_t SPI_SCLK = 0x0007; // 0_7
 			const uint32_t SPI_CSEL = 0x0011; // 0_17
 			
-			const uint32_t LORA_BUFFER_SIZE = 16;
-			uint8_t txBuffer[16] = { 0 };
-			uint8_t rxBuffer[16] = { 0 };
+			const uint32_t LORA_BUFFER_SIZE = 24;
+			uint8_t txBuffer[24] = { 0 };
+			uint8_t rxBuffer[24] = { 0 };
 			
 			const uint32_t RF_FREQUENCY = 2425000000UL;
 			const uint32_t TX_OUTPUT_POWER = 13;
@@ -2520,9 +2586,11 @@ class SX1280 {
 			const uint32_t BLE_ADVERTIZER_ACCESS_ADDRESS = 0x8E89BED6;
 			
 			SDD1306 &sdd1306;
+			EEPROM &settings;
 
-			SX1280(SDD1306 &_sdd1306):
-				sdd1306(_sdd1306) { 
+			SX1280(SDD1306 &_sdd1306, EEPROM &_settings):
+				sdd1306(_sdd1306),
+				settings(_settings) { 
 			}
 			
 			void Init(bool pollMode) {
@@ -3750,22 +3818,28 @@ class SX1280 {
 			}
 
 			void txDone() {
-				sdd1306.PlaceAsciiStr(0,0,"TXDONE!!");
-				sdd1306.Display();
-				delay(250);
+				//sdd1306.PlaceAsciiStr(0,0,"TXDONE!!");
+				//sdd1306.Display();
+				//delay(250);
+		    	SetRx( TickTime { RX_TIMEOUT_TICK_SIZE, RX_TIMEOUT_VALUE } );
 			}
 
 			void rxDone() {
+				//sdd1306.PlaceAsciiStr(0,0,"RXDONE!!");
+				//sdd1306.Display();
+				//delay(250);
 			    PacketStatus packetStatus;
 				GetPacketStatus(&packetStatus);
 				uint8_t rxBufferSize = 0;
                 GetPayload( rxBuffer, &rxBufferSize, LORA_BUFFER_SIZE );
-
-				sdd1306.PlaceAsciiStr(0,0,"RXDONE!!");
-				rxBuffer[8] = 0;
-				sdd1306.PlaceAsciiStr(0,2,(const char *)rxBuffer);
-				sdd1306.Display();
-				delay(250);
+				if (memcmp(rxBuffer,"DUCK!!",6) == 0) {
+					memcpy(settings.recv_radio_message, rxBuffer+8, 8);
+					memcpy(settings.recv_radio_name, rxBuffer+16, 8);
+					settings.recv_radio_color = rxBuffer[7];
+					if (settings.radio_enabled) {
+						settings.recv_radio_message_pending = true;
+					}
+				}
 			}
 
 			void rxSyncWordDone() {
@@ -3806,12 +3880,17 @@ class SX1280 {
 				// TODO
 			}
 			
-			void SendBeacon() {
-				const char *beacon = "DUCKPONDDUCKPOND";
-				memcpy(txBuffer,beacon,16);
+			void SendMessage() {
+				char buf[24];
+				memcpy(buf,"DUCK!!",6);
+				buf[6] = 0;
+				buf[7] = settings.radio_color;
+				memcpy(buf+8,settings.radio_messages[settings.radio_message],8);
+				memcpy(buf+16,settings.radio_name,8);
+				memcpy(txBuffer,buf,24);
 				SendBuffer();
 			}
-
+			
 	private:
 	
 			void disableIRQ() {
@@ -3859,6 +3938,8 @@ class UI {
 	
 	EEPROM &settings;
 	SDD1306 &sdd1306;
+	SX1280 &sx1280;
+	Random &random;
 	
 	uint32_t mode;
 	uint32_t mode_start_time;
@@ -3866,9 +3947,13 @@ class UI {
 public:
 	
 	UI(EEPROM &_settings,
-	   SDD1306 &_sdd1306):
+	   SDD1306 &_sdd1306,
+	   SX1280 &_sx1280,
+	   Random &_random):
 		settings(_settings),
-		sdd1306(_sdd1306) {
+		sdd1306(_sdd1306),
+		sx1280(_sx1280),
+		random(_random) {
 	}
 
 	const uint32_t PRIMARY_BUTTON = 0x0119;
@@ -3878,8 +3963,6 @@ public:
 		
 		mode = 0;
 		
-		Chip_Clock_EnablePeriphClock(SYSCTL_CLOCK_PINT);
-
 		Chip_IOCON_PinMuxSet(LPC_IOCON, uint8_t(PRIMARY_BUTTON>>8), uint8_t(PRIMARY_BUTTON&0xFF), IOCON_FUNC0 | IOCON_MODE_PULLUP);
 		Chip_GPIO_SetPinDIRInput(LPC_GPIO, uint8_t(PRIMARY_BUTTON>>8), uint8_t(PRIMARY_BUTTON&0xFF));
 
@@ -3915,8 +3998,36 @@ public:
 
 		if ( (Chip_PININT_GetRiseStates(LPC_PININT) & PININTCH1) ) {
 			Chip_PININT_ClearRiseStates(LPC_PININT, PININTCH1);
-			if ( (system_clock_ms - fall_time) > 20) {
-				settings.NextEffect();
+			if ( (system_clock_ms - fall_time) > 250) {
+				if (Mode() != 0) {
+					SetMode(system_clock_ms, 0);
+				} else {
+					SetMode(system_clock_ms, 2);
+				}
+			} else if ( (system_clock_ms - fall_time) > 20) {
+				switch (mode) {
+					case 	0: {
+						settings.NextEffect();
+					} break;
+					case	1: {
+						// NOP
+					} break;
+					case	2: {
+						SettingsHandler(true, false);
+					} break;
+					case	3: {
+						RGBGHandler(true, false);
+					} break;
+					case	4: {
+						RadioSettingsHandler(true, false);
+					} break;
+					case	5: {
+						RadioHandler(true, false);
+					} break;
+					case	6: {
+						// NOP
+					} break;
+				}
 			}
 			Chip_PININT_ClearIntStatus(LPC_PININT, PININTCH1);
 		}
@@ -3932,16 +4043,114 @@ public:
 
 		if ( (Chip_PININT_GetRiseStates(LPC_PININT) & PININTCH2) ) {
 			Chip_PININT_ClearRiseStates(LPC_PININT, PININTCH2);
-			if ( (system_clock_ms - fall_time) > 20) {
-				settings.NextBrightness();
+			if ( (system_clock_ms - fall_time) > 250) {
+				if (Mode() != 0) {
+					SetMode(system_clock_ms, 0);
+				} else {
+					SetMode(system_clock_ms, 5);
+				}
+			} else if ( (system_clock_ms - fall_time) > 20) {
+				switch (mode) {
+					case 	0: {
+						settings.NextBrightness();
+					} break;
+					case	1: {
+						// NOP
+					} break;
+					case	2: {
+						SettingsHandler(false, true);
+					} break;
+					case	3: {
+						RGBGHandler(false, true);
+					} break;
+					case	4: {
+						RadioSettingsHandler(false, true);
+					} break;
+					case	5: {
+						RadioHandler(false, true);
+					} break;
+					case	6: {
+						// NOP
+					} break;
+				}
 			}
 			Chip_PININT_ClearIntStatus(LPC_PININT, PININTCH2);
 		}
 	}
 	
+	int previous_mode = 0;
+	int interlude = 0;
+
 	void SetMode(uint32_t current_time, uint32_t _mode) {
 		mode_start_time = current_time;
+		previous_mode = mode;
 		mode = _mode;
+		sdd1306.ClearAttr();
+		if (mode == 1) {
+			interlude = random.get(0,2);
+		}
+		sdd1306.SetVerticalShift(0);
+		sdd1306.SetCenterFlip(0);
+		Display();
+	}
+	
+	uint32_t Mode() const { return mode; }
+	
+	void DisplayDog() {
+		if ((system_clock_ms - mode_start_time) < 50) {
+			for (int32_t c=0; c<8; c++) {
+				sdd1306.PlaceCustomChar(c,0,0x128+c);
+			}
+			for (int32_t c=0; c<8; c++) {
+				sdd1306.PlaceCustomChar(c,1,0x130+c);
+			}
+			for (int32_t c=0; c<8; c++) {
+				sdd1306.PlaceCustomChar(c,2,0x138+c);
+			}
+			for (int32_t c=0; c<8; c++) {
+				sdd1306.PlaceCustomChar(c,3,0x140+c);
+			}
+			sdd1306.SetVerticalShift(0);
+		}
+		else if ((system_clock_ms - mode_start_time) < 50 + 640 + 50) {
+			uint32_t ltime = (system_clock_ms - mode_start_time) - 50;
+			static uint8_t bounce[] = {
+				0x1f, 0x1f, 0x1f, 0x1f, 0x1f, 0x1e, 0x1d, 0x1d, 
+				0x1c, 0x1b, 0x1a, 0x18, 0x17, 0x16, 0x14, 0x12, 
+				0x10, 0x0e, 0x0c, 0x0a, 0x08, 0x05, 0x03, 0x01, 
+				0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x07, 0x08, 
+				0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x07, 0x07, 
+				0x06, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01, 0x01, 
+				0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 
+				0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 
+			};
+			uint32_t y = ltime/10;
+			if (y >= 64) y = 63;
+			sdd1306.Display();
+			sdd1306.SetVerticalShift(bounce[y]);
+		}
+		else if ((system_clock_ms - mode_start_time) < 2000 + 50 + 640 + 50) {
+		}
+		else if ((system_clock_ms - mode_start_time) < 160 + 2000 + 50 + 640 + 50) {
+			uint32_t ltime = (system_clock_ms - mode_start_time) - (2000 + 50 + 640 + 50);
+			static int8_t ease[] = {
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 
+				0x02, 0x02, 0x03, 0x03, 0x04, 0x05, 0x06, 0x07, 
+				0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0e, 0x0f, 0x11, 
+				0x12, 0x14, 0x15, 0x17, 0x19, 0x1b, 0x1d, 0x1f, 
+				0x1f,
+			};
+			sdd1306.SetVerticalShift(-ease[ltime/5]);
+			sdd1306.SetCenterFlip(ltime/5);
+			sdd1306.Display();
+		} else {
+			mode = previous_mode;
+			sdd1306.ClearAttr();
+			DisplayStatus();
+			sdd1306.SetVerticalShift(0);
+			sdd1306.SetCenterFlip(0);
+			sdd1306.Display();
+		}
 	}
 
 	void DisplayNow() {
@@ -3956,7 +4165,7 @@ public:
 				sdd1306.PlaceCustomChar(c,2,0xC8+c);
 			}
 			for (int32_t c=0; c<8; c++) {
-				sdd1306.PlaceCustomChar(c,3,0);
+				sdd1306.PlaceCustomChar(c,3,0xD0+c);
 			}
 			sdd1306.SetVerticalShift(0);
 		}
@@ -3990,7 +4199,7 @@ public:
 					sdd1306.PlaceCustomChar(c,2,0);
 				}
 				for (int32_t c=0; c<8; c++) {
-					sdd1306.PlaceCustomChar(c,3,0);
+					sdd1306.PlaceCustomChar(c,3,0xD0+c);
 				}
 				sdd1306.Display();
 			} else if (((ltime / 100)&1) == 1) {
@@ -4004,7 +4213,7 @@ public:
 					sdd1306.PlaceCustomChar(c,2,0xC8+c);
 				}
 				for (int32_t c=0; c<8; c++) {
-					sdd1306.PlaceCustomChar(c,3,0);
+					sdd1306.PlaceCustomChar(c,3,0xD0+c);
 				}
 				sdd1306.Display();
 			}
@@ -4022,7 +4231,8 @@ public:
 			sdd1306.SetCenterFlip(ltime/5);
 			sdd1306.Display();
 		} else {
-			mode = 0;
+			mode = previous_mode;
+			sdd1306.ClearAttr();
 			DisplayStatus();
 			sdd1306.SetVerticalShift(0);
 			sdd1306.SetCenterFlip(0);
@@ -4109,10 +4319,460 @@ public:
 		sdd1306.PlaceCustomChar(0,2,0x66);
 		DisplayBar(1,2,7,(NormBatteryChargeForBar() * 14 / 255), 1);
 		sdd1306.PlaceCustomChar(0,3,0x67);
-		char str[8];
+		char str[9];
 		sprintf(str,"[%02d/%02d]",settings.program_curr,settings.program_count);
 		sdd1306.PlaceAsciiStr(1,3,str);
 		sdd1306.Display();
+	}
+	
+	int32_t menu_scroll = 0;
+	const int32_t max_menu = 7;
+	const int32_t max_menu_scroll = 4;
+	int32_t menu_selection = 0;
+	
+	void DisplaySettings() {
+		sdd1306.PlaceCustomChar(0,0,0x7B);
+		sdd1306.PlaceCustomChar(1,0,0x149);
+		sdd1306.PlaceCustomChar(2,0,0x14A);
+		sdd1306.PlaceCustomChar(3,0,0x14B);
+		sdd1306.PlaceCustomChar(4,0,0x14C);
+		sdd1306.PlaceCustomChar(5,0,0x14D);
+		sdd1306.PlaceCustomChar(6,0,0x14E);
+		sdd1306.PlaceCustomChar(7,0,0x14F);
+		if (menu_selection == 0) {
+			sdd1306.SetAttr(0,0,1);
+		} else {
+			sdd1306.SetAttr(0,0,0);
+		}
+		const char *menu[] = {
+			"1COLORS ",
+			"2RADIO  ",
+			"3STATS  ",
+			"4NOTHING",
+			"5HERE   ",
+			"6REALLY ",
+			"7QUACK! ",
+		};
+		for (int32_t c=0; c<3; c++) {
+			sdd1306.PlaceAsciiStr(0,c+1,menu[c+menu_scroll]);
+			if (menu_selection == c+1+menu_scroll) {
+				sdd1306.SetAttr(0,c+1,1);
+			} else {
+				sdd1306.SetAttr(0,c+1,0);
+			}
+		}
+		sdd1306.Display();
+	}
+	
+	void SettingsHandler(bool top_pressed, bool bottom_pressed) {
+		if (top_pressed) {
+			menu_selection++;
+			if (menu_selection > max_menu) {
+				menu_selection = 0;
+				menu_scroll = 0;
+			}
+			if (menu_selection > 3) {
+				menu_scroll = menu_selection - 3;
+			}
+		}
+		if (bottom_pressed) {
+			switch (menu_selection) { 
+				case	0: {
+							menu_scroll = 0;
+							menu_selection = 0;
+							SetMode(system_clock_ms, 0);
+							return;
+						} break;
+				case	1: {
+							menu_scroll = 0;
+							menu_selection = 0;
+							SetMode(system_clock_ms, 3);
+							return;
+						} break;
+				case	2: {
+							menu_scroll = 0;
+							menu_selection = 0;
+							SetMode(system_clock_ms, 4);
+							return;
+						} break;
+				case	3: {
+						} break;
+				case	4: {
+						} break;
+				case	5: {
+						} break;
+				case	6: {
+						} break;
+				case	7: {
+						} break;
+				case	8: {
+						} break;
+			}
+		}
+		DisplaySettings();
+	}
+
+	bool ring_or_duck = false;
+	int32_t rgb_selection = 0;
+	
+	void DisplayRGB() {
+		
+		sdd1306.SetAttr(0,0,0);
+		sdd1306.SetAttr(0,1,0);
+		sdd1306.SetAttr(0,2,0);
+		sdd1306.SetAttr(0,3,0);
+		
+		switch (rgb_selection) {
+			case	0: {
+						sdd1306.SetAttr(0,0,1);
+					} break;
+			case	1: {
+					} break;
+			case	2: {
+						sdd1306.SetAttr(0,1,1);
+					} break;
+			case	3: {
+						sdd1306.SetAttr(0,2,1);
+					} break;
+			case	4: {
+						sdd1306.SetAttr(0,3,1);
+					} break;
+		}
+		
+		sdd1306.PlaceCustomChar(0,0,0x7B);
+		
+		if (rgb_selection == 1) {
+			if (ring_or_duck) {
+				sdd1306.PlaceCustomChar(1,0,0x157);
+				sdd1306.PlaceCustomChar(2,0,0x158);
+				sdd1306.PlaceCustomChar(3,0,0x159);
+				sdd1306.PlaceCustomChar(4,0,0x15A);
+				sdd1306.PlaceCustomChar(5,0,0x15B);
+				sdd1306.PlaceCustomChar(6,0,0x15C);
+				sdd1306.PlaceCustomChar(7,0,0x15D);
+			} else {
+				sdd1306.PlaceCustomChar(1,0,0x150);
+				sdd1306.PlaceCustomChar(2,0,0x151);
+				sdd1306.PlaceCustomChar(3,0,0x152);
+				sdd1306.PlaceCustomChar(4,0,0x153);
+				sdd1306.PlaceCustomChar(5,0,0x154);
+				sdd1306.PlaceCustomChar(6,0,0x155);
+				sdd1306.PlaceCustomChar(7,0,0x156);
+			}
+		} else {
+			if (ring_or_duck) {
+				sdd1306.PlaceCustomChar(1,0,0x15E);
+				sdd1306.PlaceCustomChar(2,0,0x15F);
+				sdd1306.PlaceCustomChar(3,0,0x160);
+				sdd1306.PlaceCustomChar(4,0,0x161);
+				sdd1306.PlaceCustomChar(5,0,0x162);
+				sdd1306.PlaceCustomChar(6,0,0x163);
+				sdd1306.PlaceCustomChar(7,0,0x164);
+			} else {
+				sdd1306.PlaceCustomChar(1,0,0x165);
+				sdd1306.PlaceCustomChar(2,0,0x166);
+				sdd1306.PlaceCustomChar(3,0,0x167);
+				sdd1306.PlaceCustomChar(4,0,0x168);
+				sdd1306.PlaceCustomChar(5,0,0x169);
+				sdd1306.PlaceCustomChar(6,0,0x16A);
+				sdd1306.PlaceCustomChar(7,0,0x16B);
+			}
+		}
+		
+		sdd1306.PlaceCustomChar(0,1,0x68);
+		DisplayBar(1,1,7,uint8_t(ring_or_duck ? settings.ring_color.r()/16 : settings.bird_color.r()/16), 0);
+
+		sdd1306.PlaceCustomChar(0,2,0x69);
+		DisplayBar(1,2,7,uint8_t(ring_or_duck ? settings.ring_color.g()/16 : settings.bird_color.g()/16), 0);
+
+		sdd1306.PlaceCustomChar(0,3,0x6A);
+		DisplayBar(1,3,7,uint8_t(ring_or_duck ? settings.ring_color.b()/16 : settings.bird_color.b()/16), 0);
+
+		sdd1306.Display();
+	}
+	
+	
+	void RGBGHandler(bool top_pressed, bool bottom_pressed) {
+		if (top_pressed) {
+			rgb_selection ++;
+			if (rgb_selection > 4) {
+				rgb_selection = 0;
+			}
+		}
+		if (bottom_pressed) {
+			switch (rgb_selection) { 
+				case	0: {
+							rgb_selection = 0;
+							SetMode(system_clock_ms, 0);
+							settings.Save();
+							return;
+						} break;
+				case	1: {
+							if (ring_or_duck) {
+								ring_or_duck = false;
+							} else {
+								ring_or_duck = true;
+							}
+						} break;
+				case	2: {
+							if (ring_or_duck) {
+								uint8_t r = settings.ring_color.r() + 4; if (r >= 0x80) r = 0;
+								settings.ring_color = rgba(r,settings.ring_color.g()+0,settings.ring_color.b()+0);
+							} else {
+								uint8_t r = settings.bird_color.r() + 4; if (r >= 0x80) r = 0;
+								settings.bird_color = rgba(r,settings.bird_color.g()+0,settings.bird_color.b()+0);
+							}
+						} break;
+				case	3: {
+							if (ring_or_duck) {
+								uint8_t g = settings.ring_color.g() + 4; if (g >= 0x80) g = 0;
+								settings.ring_color = rgba(settings.ring_color.r()+0,g,settings.ring_color.b()+0);
+							} else {
+								uint8_t g = settings.bird_color.g() + 4; if (g >= 0x80) g = 0;
+								settings.bird_color = rgba(settings.bird_color.r()+0,g,settings.bird_color.b()+0);
+							}
+						} break;
+				case	4: {
+							if (ring_or_duck) {
+								uint8_t b = settings.ring_color.b() + 4; if (b >= 0x80) b = 0;
+								settings.ring_color = rgba(settings.ring_color.r()+0,settings.ring_color.g()+0,b);
+							} else {
+								uint8_t b = settings.bird_color.b() + 4; if (b >= 0x80) b = 0;
+								settings.bird_color = rgba(settings.bird_color.r()+0,settings.bird_color.g()+0,b);
+							}
+						} break;
+			}
+		}
+		DisplayRGB();
+	}
+
+	int32_t radio_settings_selection = 0;
+
+	void DisplayRadioSettings() {
+		sdd1306.SetAttr(0,0,0);
+		sdd1306.SetAttr(0,1,0);
+		sdd1306.SetAttr(0,2,0);
+		sdd1306.SetAttr(0,3,0); 
+		sdd1306.SetAttr(0,radio_settings_selection,1);
+		
+		sdd1306.PlaceCustomChar(0,0,0x7B);
+		sdd1306.PlaceCustomChar(1,0,0x17A);
+		sdd1306.PlaceCustomChar(2,0,0x17B);
+		sdd1306.PlaceCustomChar(3,0,0x17C);
+		sdd1306.PlaceCustomChar(4,0,0x17D);
+		sdd1306.PlaceCustomChar(5,0,0x17E);
+		sdd1306.PlaceCustomChar(6,0,0x17F);
+		sdd1306.PlaceCustomChar(7,0,0x180);
+
+		const char *menu[] = {
+			"1       ",
+			"2NAME   ",
+			"3MESSAGE",
+		};
+		
+		for (int32_t c=0; c<3; c++) {
+			sdd1306.PlaceAsciiStr(0,c+1,menu[c]);
+			if (radio_settings_selection == c+1) {
+				sdd1306.SetAttr(0,c+1,1);
+			} else {
+				sdd1306.SetAttr(0,c+1,0);
+			}
+		}
+
+		if (settings.radio_enabled) {
+			sdd1306.PlaceCustomChar(1,1,0x173);
+			sdd1306.PlaceCustomChar(2,1,0x174);
+			sdd1306.PlaceCustomChar(3,1,0x175);
+			sdd1306.PlaceCustomChar(4,1,0x176);
+			sdd1306.PlaceCustomChar(5,1,0x177);
+			sdd1306.PlaceCustomChar(6,1,0x178);
+			sdd1306.PlaceCustomChar(7,1,0x179);
+		} else {
+			sdd1306.PlaceCustomChar(1,1,0x16C);
+			sdd1306.PlaceCustomChar(2,1,0x16D);
+			sdd1306.PlaceCustomChar(3,1,0x16E);
+			sdd1306.PlaceCustomChar(4,1,0x16F);
+			sdd1306.PlaceCustomChar(5,1,0x170);
+			sdd1306.PlaceCustomChar(6,1,0x171);
+			sdd1306.PlaceCustomChar(7,1,0x172);
+		}
+
+		sdd1306.Display();
+	}
+
+	void RadioSettingsHandler(bool top_pressed, bool bottom_pressed) {
+		if (top_pressed) {
+			radio_settings_selection ++;
+			if (radio_settings_selection > 3) {
+				radio_settings_selection = 0;
+			}
+		}
+		if (bottom_pressed) {
+			switch (radio_settings_selection) { 
+				case	0: {
+							radio_settings_selection = 0;
+							SetMode(system_clock_ms, 0);
+							settings.Save();
+							return;
+						} break;
+				case	1: {
+							if (settings.radio_enabled) {
+								settings.radio_enabled = false;
+							} else {
+								settings.radio_enabled = true;
+							}
+						} break;
+				case	2: {
+						} break;
+				case	3: {
+						} break;
+			}
+		}
+		DisplayRadioSettings();
+	}
+
+	int32_t radio_selection = 0;
+
+	void DisplayRadio() {
+		
+		sdd1306.SetAttr(0,1,0);
+		sdd1306.SetAttr(0,2,0);
+		sdd1306.SetAttr(0,3,0); 
+		sdd1306.SetAttr(0,radio_selection+1,1);
+		
+		if (settings.radio_message >= 8) {
+			settings.radio_message = 0;
+		}
+
+		if (settings.radio_color >= 11) {
+			settings.radio_color = 0;
+		}
+		
+		char str[9];
+		memset(str,0,sizeof(str));
+		memcpy(str,settings.radio_messages[settings.radio_message],8);
+		sdd1306.PlaceAsciiStr(0,0,str);
+
+		sdd1306.PlaceCustomChar(0,1,0x193);
+		
+		if (radio_selection == 0) {
+			sdd1306.PlaceCustomChar(1,1,0x19B);
+			sdd1306.PlaceCustomChar(2,1,0x19C);
+			sdd1306.PlaceCustomChar(3,1,0x19D);
+			sdd1306.PlaceCustomChar(4,1,0x19E);
+			sdd1306.PlaceCustomChar(5,1,0x19F);
+			sdd1306.PlaceCustomChar(6,1,0x1A0);
+			sdd1306.PlaceCustomChar(7,1,0x1A1);
+		} else {
+			sdd1306.PlaceCustomChar(1,1,0x194);
+			sdd1306.PlaceCustomChar(2,1,0x195);
+			sdd1306.PlaceCustomChar(3,1,0x196);
+			sdd1306.PlaceCustomChar(4,1,0x197);
+			sdd1306.PlaceCustomChar(5,1,0x198);
+			sdd1306.PlaceCustomChar(6,1,0x199);
+			sdd1306.PlaceCustomChar(7,1,0x19A);
+		}
+
+		sdd1306.PlaceCustomChar(0,2,0x191);
+		sprintf(str,"[%02d/%02d]",settings.radio_message,8);
+		sdd1306.PlaceAsciiStr(1,2,str);
+
+		sdd1306.PlaceCustomChar(0,3,0x192);
+		sprintf(str,"[%02d/%02d]",settings.radio_color,11);
+		sdd1306.PlaceAsciiStr(1,3,str);
+
+		sdd1306.Display();
+	}
+	
+	void RadioHandler(bool top_pressed, bool bottom_pressed) {
+		if (top_pressed) {
+			radio_selection ++;
+			if (radio_selection > 2) {
+				radio_selection = 0;
+			}
+		}
+		if (bottom_pressed) {
+			switch (radio_selection) { 
+				case	0: {
+							sx1280.SendMessage();
+							radio_selection = 0;
+							sdd1306.ClearAttr();
+							SetMode(system_clock_ms, 0);
+							settings.Save();
+							return;
+						} break;
+				case	1: {
+							settings.radio_message ++;
+							if (settings.radio_message >= 8) {
+								settings.radio_message = 0;
+							}
+						} break;
+				case	2: {
+							settings.radio_color ++;
+							if (settings.radio_color >= 11) {
+								settings.radio_color = 0;
+							}
+						} break;
+			}
+		}
+		DisplayRadio();
+	}
+
+	void DisplayMessage() {
+		if ((system_clock_ms - mode_start_time) < 50) {
+			for (int32_t c=0; c<8; c++) {
+				sdd1306.PlaceCustomChar(c,0,0x181+c);
+			}
+			char str[9];
+			memset(str,0,9);
+			memcpy(str,settings.recv_radio_message,8);
+			sdd1306.PlaceAsciiStr(0,1,str);
+			memcpy(str,settings.recv_radio_name,8);
+			sdd1306.PlaceAsciiStr(0,2,str);
+			for (int32_t c=0; c<8; c++) {
+				sdd1306.PlaceCustomChar(c,3,0x189+c);
+			}
+			sdd1306.SetVerticalShift(0);
+		}
+		else if ((system_clock_ms - mode_start_time) < 50 + 640 + 50) {
+			uint32_t ltime = (system_clock_ms - mode_start_time) - 50;
+			static uint8_t bounce[] = {
+				0x1f, 0x1f, 0x1f, 0x1f, 0x1f, 0x1e, 0x1d, 0x1d, 
+				0x1c, 0x1b, 0x1a, 0x18, 0x17, 0x16, 0x14, 0x12, 
+				0x10, 0x0e, 0x0c, 0x0a, 0x08, 0x05, 0x03, 0x01, 
+				0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x07, 0x08, 
+				0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x07, 0x07, 
+				0x06, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01, 0x01, 
+				0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 
+				0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 
+			};
+			uint32_t y = ltime/10;
+			if (y >= 64) y = 63;
+			sdd1306.Display();
+			sdd1306.SetVerticalShift(bounce[y]);
+		}
+		else if ((system_clock_ms - mode_start_time) < 5000 + 50 + 640 + 50) {
+		}
+		else if ((system_clock_ms - mode_start_time) < 160 + 5000 + 50 + 640 + 50) {
+			uint32_t ltime = (system_clock_ms - mode_start_time) - (5000 + 50 + 640 + 50);
+			static int8_t ease[] = {
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 
+				0x02, 0x02, 0x03, 0x03, 0x04, 0x05, 0x06, 0x07, 
+				0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0e, 0x0f, 0x11, 
+				0x12, 0x14, 0x15, 0x17, 0x19, 0x1b, 0x1d, 0x1f, 
+				0x1f,
+			};
+			sdd1306.SetVerticalShift(-ease[ltime/5]);
+			sdd1306.SetCenterFlip(ltime/5);
+			sdd1306.Display();
+		} else {
+			mode = previous_mode;
+			sdd1306.ClearAttr();
+			DisplayStatus();
+			sdd1306.SetVerticalShift(0);
+			sdd1306.SetCenterFlip(0);
+			sdd1306.Display();
+		}
 	}
 	
 	void Display() {
@@ -4121,7 +4781,29 @@ public:
 					DisplayStatus();
 					break;
 			case	1:
-					DisplayNow();
+					switch(interlude) {
+						case 	0:
+								DisplayNow();
+								break;
+						case 	1:
+								DisplayDog();
+								break;
+					}
+					break;
+			case	2:
+					DisplaySettings();
+					break;
+			case	3:
+					DisplayRGB();
+					break;
+			case	4:
+					DisplayRadioSettings();
+					break;
+			case	5:
+					DisplayRadio();
+					break;
+			case	6:
+					DisplayMessage();
 					break;
 		}
 	}
@@ -4138,6 +4820,7 @@ class Effects {
 
 	uint32_t post_clock_ms;
 	bool past_post_time;
+	bool break_on_message;
 	
 public:
 	
@@ -4156,13 +4839,19 @@ public:
 			ui(_ui)	{
 		post_clock_ms = system_clock_ms + 10;
 		past_post_time = true;
+		break_on_message = false;
 	}	
 	
 	void RunForever() {
 		while (1) {
 			if (past_post_time) {
 				past_post_time = false;
-				switch(settings.program_curr) {
+				if (ui.Mode() == 6) {
+					message_ring();
+				} else if (ui.Mode() == 2 ||
+					ui.Mode() == 5) {
+					color_ring();
+				} else switch(settings.program_curr) {
 					case	0:
 							color_ring();
 							break;
@@ -4265,8 +4954,13 @@ private:
 
 	bool break_effect() {
 		static uint32_t old_program_curr = 0;
+		static uint32_t old_mode = 0;
 		if (settings.program_curr != old_program_curr) {
 			old_program_curr = settings.program_curr;
+			return true;
+		}
+		if (ui.Mode() != old_mode) {
+			old_mode = ui.Mode();
 			return true;
 		}
 		return false;
@@ -4293,10 +4987,46 @@ private:
 		return false;
 	}
 	
+	void message_ring() {
+		int32_t rgb_walk = 0;
+		int32_t switch_dir = 4;
+		for (; ;) {
+			for (uint32_t d = 0; d < 8; d++) {
+				leds.set_ring(d, ((rgba(radio_colors[settings.recv_radio_color]).r())*rgb_walk)/256,
+						 		 ((rgba(radio_colors[settings.recv_radio_color]).g())*rgb_walk)/256,
+						 		 ((rgba(radio_colors[settings.recv_radio_color]).b())*rgb_walk)/256);
+			}
+
+			for (uint32_t d = 0; d < 4; d++) {
+				leds.set_bird(d, settings.bird_color);
+			}
+			
+			rgb_walk += switch_dir;
+			if (rgb_walk >= 256) {
+				rgb_walk = 255;
+				switch_dir *= -1;
+			}
+			if (rgb_walk < 0) {
+				rgb_walk = 0;
+				switch_dir *= -1;
+			}
+
+			if (post_frame(4)) {
+				return;
+			}
+		}
+	}
+	
 	void color_ring() {
 		for (;;) {
-			for (uint32_t d = 0; d < 8; d++) {
-				leds.set_ring(d, settings.ring_color);
+			if (ui.Mode() == 5) {
+				for (uint32_t d = 0; d < 8; d++) {
+					leds.set_ring(d, rgba(radio_colors[settings.radio_color]));
+				}
+			} else {
+				for (uint32_t d = 0; d < 8; d++) {
+					leds.set_ring(d, settings.ring_color);
+				}
 			}
 
 			for (uint32_t d = 0; d < 4; d++) {
@@ -5467,17 +6197,19 @@ extern "C" {
 		g_spi->push_frame(*g_leds, g_settings->brightness);
 
 		if ( (system_clock_ms % (1024*32)) == 0) {
-			g_ui->SetMode(system_clock_ms, 1);
+			if (g_ui->Mode() == 0) {
+				g_ui->SetMode(system_clock_ms, 1);
+			}
 		}
 		
 		if ( (system_clock_ms % (256)) == 0) {
 			g_sx1280->ProcessIrqs();
+			if (g_settings->recv_radio_message_pending && g_ui->Mode() == 0) {
+				g_settings->recv_radio_message_pending = false;
+				g_ui->SetMode(system_clock_ms, 6);
+			}
 		}
-		
-		if ( (system_clock_ms % (4096)) == 0) {
-			//g_sx1280->SendBeacon();
-		}
-		
+
 		g_effects->CheckPostTime();
 	}
 
@@ -5596,26 +6328,27 @@ int main(void)
 	}
 	
 	settings.Load();
+
+	Random random(0xCAFFE);
+
+	SX1280 sx1280(sdd1306, settings); g_sx1280 = &sx1280;
+	sx1280.Init(false);
+
+	FT25H16S ft25h16s; g_ft25h16s = &ft25h16s;
 	
-	UI ui(settings, sdd1306);
+	UI ui(settings, sdd1306, sx1280, random);
 	// For IRQ handlers only
 	g_ui = &ui;
 	ui.Init();
 	 
-	Random random(0xCAFFE);
-	
-	FT25H16S ft25h16s; g_ft25h16s = &ft25h16s;
 	
 /*	{
 		char str[16];
-		sprintf(str, "%08x", ft25h16s.read_device_id());
+		sprintf(str, "%08x", sx1280.GetFirmwareVersion());
 		sdd1306.PlaceAsciiStr(0,0,str);
 		sdd1306.Display();
 		delay(500);
 	}*/
-	
-	SX1280 sx1280(sdd1306); g_sx1280 = &sx1280;
-	sx1280.Init(false);
 	
 	// start 1ms timer
 	SysTick_Config(SystemCoreClock / 1000);
