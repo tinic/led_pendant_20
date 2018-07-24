@@ -5,6 +5,7 @@
 #include "chip.h"
 #include "adc_11xx.h"
 #include "gpio_11xx_1.h"
+#include "timer_11xx.h"
 #include "gpiogroup_11xx.h"
 #include "ssp_11xx.h"
 #include "printf.h"
@@ -1800,6 +1801,7 @@ class Setup {
 				InitPININT();
 				InitADC();
 				InitI2C(sdd1306, bq24295);
+				InitTimer();
 			}
 
 	private:
@@ -1854,6 +1856,13 @@ class Setup {
 				Chip_I2C_SetMasterEventHandler(I2C0, Chip_I2C_EventHandlerPolling);
 
 				ProbeI2CSlaves(sdd1306, bq24295);
+			}
+			
+			void InitTimer() {
+				Chip_TIMER_Init(LPC_TIMER32_0);
+				Chip_TIMER_Reset(LPC_TIMER32_0);
+				Chip_TIMER_PrescaleSet(LPC_TIMER32_0, (Chip_Clock_GetSystemClockRate() / 1000) - 1);
+				Chip_TIMER_Enable(LPC_TIMER32_0);
 			}
 
 			void ProbeI2CSlaves(SDD1306 &sdd1306, BQ24295 &bq24295) {
@@ -3943,6 +3952,33 @@ class UI {
 	
 	uint32_t mode;
 	uint32_t mode_start_time;
+
+	bool top_long_press;
+	bool top_short_press;
+	
+	bool bottom_long_press;
+	bool bottom_short_press;
+	
+	int32_t previous_mode;
+	int32_t interlude;
+
+
+	int32_t menu_scroll;
+	int32_t max_menu;
+	int32_t max_menu_scroll;
+	int32_t menu_selection;
+	
+	bool ring_or_duck;
+	int32_t rgb_selection;
+	
+	int32_t radio_settings_selection;
+	
+	int32_t radio_selection;
+
+	int32_t radio_name_selection;
+
+	int32_t radio_message_selection;
+	int32_t radio_message_current;
 	
 public:
 	
@@ -3960,9 +3996,33 @@ public:
 	const uint32_t SECONDARY_BUTTON = 0x0001;
 
 	void Init() {
-		
 		mode = 0;
 		
+		top_long_press = false;
+		top_short_press = false;
+		bottom_long_press = false;
+		bottom_short_press = false;
+		
+		menu_scroll = 0;
+		max_menu = 7;
+		max_menu_scroll = 4;
+		menu_selection = 0;
+		
+		ring_or_duck = false;
+		
+		rgb_selection = 0;
+		
+		radio_settings_selection = 0;
+		
+		radio_name_selection = 0;
+		
+		radio_message_selection = 0;
+		radio_message_current = 0;
+
+		mode_start_time = 0;
+		previous_mode = 0;
+		interlude = 0;
+
 		Chip_IOCON_PinMuxSet(LPC_IOCON, uint8_t(PRIMARY_BUTTON>>8), uint8_t(PRIMARY_BUTTON&0xFF), IOCON_FUNC0 | IOCON_MODE_PULLUP);
 		Chip_GPIO_SetPinDIRInput(LPC_GPIO, uint8_t(PRIMARY_BUTTON>>8), uint8_t(PRIMARY_BUTTON&0xFF));
 
@@ -3987,99 +4047,145 @@ public:
 		Chip_PININT_ClearIntStatus(LPC_PININT, PININTCH2);
 		NVIC_EnableIRQ(PIN_INT2_IRQn);  
 	}
-	
+
 	void HandleINT1IRQ() {
 		static uint32_t fall_time = 0;
+		uint32_t timer_ms = Chip_TIMER_ReadCount(LPC_TIMER32_0);
 		if ( (Chip_PININT_GetFallStates(LPC_PININT) & PININTCH1) ) {
 			Chip_PININT_ClearFallStates(LPC_PININT, PININTCH1);
-			fall_time = system_clock_ms;
+			fall_time = timer_ms;
 			Chip_PININT_ClearIntStatus(LPC_PININT, PININTCH1);
 		}
 
 		if ( (Chip_PININT_GetRiseStates(LPC_PININT) & PININTCH1) ) {
 			Chip_PININT_ClearRiseStates(LPC_PININT, PININTCH1);
+			if ( (timer_ms - fall_time) > 500) {
+				top_long_press = true;
+			} else if ( (timer_ms - fall_time) > 10) {
+				top_short_press = true;
+			}
 			Chip_PININT_ClearIntStatus(LPC_PININT, PININTCH1);
-			if ( (system_clock_ms - fall_time) > 500) {
-				if (Mode() != 0) {
-					SetMode(system_clock_ms, 0);
-				} else {
-					SetMode(system_clock_ms, 2);
-				}
-			} else if ( (system_clock_ms - fall_time) > 20) {
-				switch (mode) {
-					case 	0: {
-						settings.NextEffect();
-					} break;
-					case	1: {
-						// NOP
-					} break;
-					case	2: {
-						SettingsHandler(true, false);
-					} break;
-					case	3: {
-						RGBGHandler(true, false);
-					} break;
-					case	4: {
-						RadioSettingsHandler(true, false);
-					} break;
-					case	5: {
-						RadioHandler(true, false);
-					} break;
-					case	6: {
-						// NOP
-					} break;
-				}
+		}
+	}
+	
+	void TopLongPress() {
+		if (top_long_press) {
+			top_long_press = false;
+			if (Mode() != 0) {
+				SetMode(system_clock_ms, 0);
+			} else {
+				SetMode(system_clock_ms, 2);
+			}
+		}
+	}
+
+	void TopShortPress() {
+		if (top_short_press) {
+			top_short_press = false;
+			switch (mode) {
+				case 	0: {
+					settings.NextEffect();
+				} break;
+				case	1: {
+					// NOP
+				} break;
+				case	2: {
+					SettingsHandler(true, false);
+				} break;
+				case	3: {
+					RGBGHandler(true, false);
+				} break;
+				case	4: {
+					RadioSettingsHandler(true, false);
+				} break;
+				case	5: {
+					RadioHandler(true, false);
+				} break;
+				case	6: {
+					// NOP
+				} break;
+				case	7: {
+					NameSettingsHandler(true, false);
+				} break;
+				case	8: {
+					MessageSettingsHandler(true, false);
+				} break;
 			}
 		}
 	}
 	
 	void HandleINT2IRQ() {
 		static uint32_t fall_time = 0;
+		uint32_t timer_ms = Chip_TIMER_ReadCount(LPC_TIMER32_0);
 		if ( (Chip_PININT_GetFallStates(LPC_PININT) & PININTCH2) ) {
 			Chip_PININT_ClearFallStates(LPC_PININT, PININTCH2);
-			fall_time = system_clock_ms;
+			fall_time = timer_ms;
 			Chip_PININT_ClearIntStatus(LPC_PININT, PININTCH2);
 		}
 
 		if ( (Chip_PININT_GetRiseStates(LPC_PININT) & PININTCH2) ) {
 			Chip_PININT_ClearRiseStates(LPC_PININT, PININTCH2);
 			Chip_PININT_ClearIntStatus(LPC_PININT, PININTCH2);
-			if ( (system_clock_ms - fall_time) > 500) {
-				if (Mode() != 0) {
-					SetMode(system_clock_ms, 0);
-				} else {
-					SetMode(system_clock_ms, 5);
-				}
-			} else if ( (system_clock_ms - fall_time) > 20) {
-				switch (mode) {
-					case 	0: {
-						settings.NextBrightness();
-					} break;
-					case	1: {
-						// NOP
-					} break;
-					case	2: {
-						SettingsHandler(false, true);
-					} break;
-					case	3: {
-						RGBGHandler(false, true);
-					} break;
-					case	4: {
-						RadioSettingsHandler(false, true);
-					} break;
-					case	5: {
-						RadioHandler(false, true);
-					} break;
-					case	6: {
-						// NOP
-					} break;
-				}
+			if ( (timer_ms - fall_time) > 500) {
+				bottom_long_press = true;
+			} else if ( (timer_ms - fall_time) > 10) {
+				bottom_short_press = true;
 			}
 		}
 	}
 	
-	int previous_mode = 0;
-	int interlude = 0;
+	void BottomLongPress() {
+		if (bottom_long_press) {
+			bottom_long_press = false;
+			if (Mode() != 0) {
+				SetMode(system_clock_ms, 0);
+			} else {
+				SetMode(system_clock_ms, 5);
+			}
+		}
+	}
+	
+	void BottomShortPress() {
+		if (bottom_short_press) {
+			bottom_short_press = false;
+			switch (mode) {
+				case 	0: {
+					settings.NextBrightness();
+				} break;
+				case	1: {
+					// NOP
+				} break;
+				case	2: {
+					SettingsHandler(false, true);
+				} break;
+				case	3: {
+					RGBGHandler(false, true);
+				} break;
+				case	4: {
+					RadioSettingsHandler(false, true);
+				} break;
+				case	5: {
+					RadioHandler(false, true);
+				} break;
+				case	6: {
+					// NOP
+				} break;
+				case	7: {
+					NameSettingsHandler(false, true);
+				} break;
+				case	8: {
+					MessageSettingsHandler(false, true);
+				} break;
+			}
+		}
+	}
+	
+	void CheckInput() {
+		TopLongPress();
+		TopShortPress();
+		BottomLongPress();
+		BottomShortPress();
+	}
 
 	void SetMode(uint32_t current_time, uint32_t _mode) {
 		mode_start_time = current_time;
@@ -4325,11 +4431,6 @@ public:
 		sdd1306.Display();
 	}
 	
-	int32_t menu_scroll = 0;
-	const int32_t max_menu = 7;
-	const int32_t max_menu_scroll = 4;
-	int32_t menu_selection = 0;
-	
 	void DisplaySettings() {
 		sdd1306.PlaceCustomChar(0,0,0x7B);
 		sdd1306.PlaceCustomChar(1,0,0x149);
@@ -4412,9 +4513,6 @@ public:
 		DisplaySettings();
 	}
 
-	bool ring_or_duck = false;
-	int32_t rgb_selection = 0;
-	
 	void DisplayRGB() {
 		
 		sdd1306.SetAttr(0,0,0);
@@ -4546,8 +4644,6 @@ public:
 		DisplayRGB();
 	}
 
-	int32_t radio_settings_selection = 0;
-
 	void DisplayRadioSettings() {
 		sdd1306.SetAttr(0,0,0);
 		sdd1306.SetAttr(0,1,0);
@@ -4623,15 +4719,19 @@ public:
 							}
 						} break;
 				case	2: {
+							radio_settings_selection = 0;
+							SetMode(system_clock_ms, 7);
+							return;
 						} break;
 				case	3: {
+							radio_settings_selection = 0;
+							SetMode(system_clock_ms, 8);
+							return;
 						} break;
 			}
 		}
 		DisplayRadioSettings();
 	}
-
-	int32_t radio_selection = 0;
 
 	void DisplayRadio() {
 		
@@ -4775,6 +4875,145 @@ public:
 		}
 	}
 	
+	void DisplayNameSettings() {
+		if ( radio_name_selection == 0 ) {
+			sdd1306.SetAttr(0,0,1);
+		} else {
+			sdd1306.SetAttr(0,0,0);
+		}
+		
+		sdd1306.PlaceCustomChar(0,0,0x7B);
+		sdd1306.PlaceCustomChar(1,0,0x1A2);
+		sdd1306.PlaceCustomChar(2,0,0x1A3);
+		sdd1306.PlaceCustomChar(3,0,0x1A4);
+		sdd1306.PlaceCustomChar(4,0,0x1A5);
+		sdd1306.PlaceCustomChar(5,0,0x1A6);
+		sdd1306.PlaceCustomChar(6,0,0x1A7);
+		sdd1306.PlaceCustomChar(7,0,0x1A8);
+		
+		sdd1306.PlaceAsciiStr(0,1,"        ");
+		
+		char str[9];
+		memset(str,0,sizeof(str));
+		memcpy(str,settings.radio_name,8);
+		sdd1306.PlaceAsciiStr(0,2,str);
+
+		sdd1306.PlaceAsciiStr(0,3,"        ");
+		
+		if (radio_name_selection > 0) {
+			sdd1306.PlaceCustomChar(radio_name_selection - 1,3,0x1B0);
+		}
+
+		sdd1306.Display();
+	}
+
+	void NameSettingsHandler(bool top_pressed, bool bottom_pressed) {
+		if (top_pressed) {
+			radio_name_selection ++;
+			if (radio_name_selection >= 9) {
+				radio_name_selection = 0;
+			}
+		}
+		if (bottom_pressed) {
+			switch (radio_name_selection) { 
+				case	0: {
+							radio_name_selection = 0;
+							SetMode(system_clock_ms, 0);
+							settings.Save();
+							return;
+						} break;
+				default: {
+							if (settings.radio_name[radio_name_selection - 1] < 0x20 ||
+								settings.radio_name[radio_name_selection - 1] > 0x60) {
+								settings.radio_name[radio_name_selection - 1] = 0x20;
+							}
+							settings.radio_name[radio_name_selection - 1] ++;
+							if (settings.radio_name[radio_name_selection - 1] >= 0x60) {
+								settings.radio_name[radio_name_selection - 1] = 0x20;
+							}
+						} break;
+			}
+		}
+		DisplayNameSettings();
+	}
+
+	void DisplayMessageSettings() {
+		
+		if ( radio_message_selection == 0 ) {
+			sdd1306.SetAttr(0,0,1);
+		} else {
+			sdd1306.SetAttr(0,0,0);
+		}
+
+		if ( radio_message_selection == 1 ) {
+			sdd1306.SetAttr(0,1,1);
+		} else {
+			sdd1306.SetAttr(0,1,0);
+		}
+		
+		sdd1306.PlaceCustomChar(0,0,0x7B);
+		sdd1306.PlaceCustomChar(1,0,0x1A9);
+		sdd1306.PlaceCustomChar(2,0,0x1AA);
+		sdd1306.PlaceCustomChar(3,0,0x1AB);
+		sdd1306.PlaceCustomChar(4,0,0x1AC);
+		sdd1306.PlaceCustomChar(5,0,0x1AD);
+		sdd1306.PlaceCustomChar(6,0,0x1AE);
+		sdd1306.PlaceCustomChar(7,0,0x1AF);
+		
+		char str[9];
+		sdd1306.PlaceCustomChar(0,1,0x191);
+		sprintf(str,"[%02d/%02d]",radio_message_current,8);
+		sdd1306.PlaceAsciiStr(1,1,str);
+		
+		memset(str,0,sizeof(str));
+		memcpy(str,settings.radio_messages[radio_message_current],8);
+		sdd1306.PlaceAsciiStr(0,2,str);
+
+		sdd1306.PlaceAsciiStr(0,3,"        ");
+		
+		if (radio_message_selection > 0) {
+			sdd1306.PlaceCustomChar(radio_message_selection - 2,3,0x1B0);
+		}
+
+		sdd1306.Display();
+	}
+
+	void MessageSettingsHandler(bool top_pressed, bool bottom_pressed) {
+		if (top_pressed) {
+			radio_message_selection ++;
+			if (radio_message_selection >= 10) {
+				radio_message_selection = 0;
+			}
+		}
+		if (bottom_pressed) {
+			switch (radio_message_selection) { 
+				case	0: {
+							radio_message_selection = 0;
+							SetMode(system_clock_ms, 0);
+							settings.Save();
+							return;
+						} break;
+				case	1: {
+							radio_message_current ++;
+							if (radio_message_current >= 8) {
+								radio_message_current = 0;
+							}
+						} break;
+				default: {
+							if (settings.radio_messages[radio_message_current][radio_message_selection - 1] < 0x20 ||
+								settings.radio_messages[radio_message_current][radio_message_selection - 1] > 0x60) {
+								settings.radio_messages[radio_message_current][radio_message_selection - 1] = 0x20;
+							}
+							settings.radio_messages[radio_message_current][radio_message_selection - 2] ++;
+							if (settings.radio_messages[radio_message_current][radio_message_selection - 2] >= 0x40) {
+								settings.radio_messages[radio_message_current][radio_message_selection - 2] = 0x20;
+							}
+						} break;
+			}
+		}
+		DisplayMessageSettings();
+	}
+	
 	void Display() {
 		switch (mode) {
 			case	0:
@@ -4804,6 +5043,12 @@ public:
 					break;
 			case	6:
 					DisplayMessage();
+					break;
+			case	7:
+					DisplayNameSettings();
+					break;
+			case	8:
+					DisplayMessageSettings();
 					break;
 		}
 	}
@@ -4848,8 +5093,7 @@ public:
 				past_post_time = false;
 				if (ui.Mode() == 6) {
 					message_ring();
-				} else if ( ui.Mode() == 2 ||
-							ui.Mode() == 3 ||
+				} else if ( ui.Mode() == 3 ||
 							ui.Mode() == 5) {
 					color_ring();
 				} else switch(settings.program_curr) {
@@ -6194,6 +6438,8 @@ extern "C" {
 	void SysTick_Handler(void)
 	{	
 		system_clock_ms++;
+		
+		g_ui->CheckInput();
 
 		g_spi->push_frame(*g_leds, g_settings->brightness);
 
@@ -6341,8 +6587,7 @@ int main(void)
 	// For IRQ handlers only
 	g_ui = &ui;
 	ui.Init();
-	 
-	
+
 /*	{
 		char str[16];
 		sprintf(str, "%08x", sx1280.GetFirmwareVersion());
