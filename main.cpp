@@ -3998,7 +3998,8 @@ public:
 
 		if ( (Chip_PININT_GetRiseStates(LPC_PININT) & PININTCH1) ) {
 			Chip_PININT_ClearRiseStates(LPC_PININT, PININTCH1);
-			if ( (system_clock_ms - fall_time) > 250) {
+			Chip_PININT_ClearIntStatus(LPC_PININT, PININTCH1);
+			if ( (system_clock_ms - fall_time) > 500) {
 				if (Mode() != 0) {
 					SetMode(system_clock_ms, 0);
 				} else {
@@ -4029,7 +4030,6 @@ public:
 					} break;
 				}
 			}
-			Chip_PININT_ClearIntStatus(LPC_PININT, PININTCH1);
 		}
 	}
 	
@@ -4043,7 +4043,8 @@ public:
 
 		if ( (Chip_PININT_GetRiseStates(LPC_PININT) & PININTCH2) ) {
 			Chip_PININT_ClearRiseStates(LPC_PININT, PININTCH2);
-			if ( (system_clock_ms - fall_time) > 250) {
+			Chip_PININT_ClearIntStatus(LPC_PININT, PININTCH2);
+			if ( (system_clock_ms - fall_time) > 500) {
 				if (Mode() != 0) {
 					SetMode(system_clock_ms, 0);
 				} else {
@@ -4074,7 +4075,6 @@ public:
 					} break;
 				}
 			}
-			Chip_PININT_ClearIntStatus(LPC_PININT, PININTCH2);
 		}
 	}
 	
@@ -4848,8 +4848,9 @@ public:
 				past_post_time = false;
 				if (ui.Mode() == 6) {
 					message_ring();
-				} else if (ui.Mode() == 2 ||
-					ui.Mode() == 5) {
+				} else if ( ui.Mode() == 2 ||
+							ui.Mode() == 3 ||
+							ui.Mode() == 5) {
 					color_ring();
 				} else switch(settings.program_curr) {
 					case	0:
