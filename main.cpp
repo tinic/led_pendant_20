@@ -2641,7 +2641,7 @@ class SX1280 {
 
 				ModulationParams modulationParams;
 				modulationParams.PacketType                  = PACKET_TYPE_LORA;
-				modulationParams.Params.LoRa.SpreadingFactor = LORA_SF5;
+				modulationParams.Params.LoRa.SpreadingFactor = LORA_SF11;
 				modulationParams.Params.LoRa.Bandwidth       = LORA_BW_0200;
 				modulationParams.Params.LoRa.CodingRate      = LORA_CR_LI_4_7;
 				SetPacketType( modulationParams.PacketType );
@@ -4580,14 +4580,6 @@ public:
 		}
 
 		if (settings.radio_enabled) {
-			sdd1306.PlaceCustomChar(1,1,0x173);
-			sdd1306.PlaceCustomChar(2,1,0x174);
-			sdd1306.PlaceCustomChar(3,1,0x175);
-			sdd1306.PlaceCustomChar(4,1,0x176);
-			sdd1306.PlaceCustomChar(5,1,0x177);
-			sdd1306.PlaceCustomChar(6,1,0x178);
-			sdd1306.PlaceCustomChar(7,1,0x179);
-		} else {
 			sdd1306.PlaceCustomChar(1,1,0x16C);
 			sdd1306.PlaceCustomChar(2,1,0x16D);
 			sdd1306.PlaceCustomChar(3,1,0x16E);
@@ -4595,6 +4587,14 @@ public:
 			sdd1306.PlaceCustomChar(5,1,0x170);
 			sdd1306.PlaceCustomChar(6,1,0x171);
 			sdd1306.PlaceCustomChar(7,1,0x172);
+		} else {
+			sdd1306.PlaceCustomChar(1,1,0x173);
+			sdd1306.PlaceCustomChar(2,1,0x174);
+			sdd1306.PlaceCustomChar(3,1,0x175);
+			sdd1306.PlaceCustomChar(4,1,0x176);
+			sdd1306.PlaceCustomChar(5,1,0x177);
+			sdd1306.PlaceCustomChar(6,1,0x178);
+			sdd1306.PlaceCustomChar(7,1,0x179);
 		}
 
 		sdd1306.Display();
@@ -4960,7 +4960,7 @@ private:
 			old_program_curr = settings.program_curr;
 			return true;
 		}
-		if (ui.Mode() != old_mode) {
+		if ((ui.Mode() != old_mode) && ui.Mode() != 1 && old_mode != 1) {
 			old_mode = ui.Mode();
 			return true;
 		}
