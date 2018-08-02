@@ -11,7 +11,6 @@
 #include "printf.h"
 #include "usbd_rom_api.h"
 
-
 #include "duck_font.h"
 
 #define SPEED_100KHZ         100000
@@ -1255,11 +1254,13 @@ private:
 };
 
 class BQ24295 {
+	
 	public:
 			static const uint32_t i2caddr = 0x6B;
 	
 			BQ24295() {
 				devicePresent = false;
+				fault_state = 0;
 			}
 			
 			void SetBoostVoltage (uint32_t voltageMV) {
@@ -1424,6 +1425,11 @@ class BQ24295 {
 				}
 				clearRegisterBits(0x00, (1 << 7));
 			}
+			
+			void DisableWatchdog() {
+				clearRegisterBits(0x05, (1 << 4));
+				clearRegisterBits(0x05, (1 << 5));
+			}
 
 			void SetChipThermalRegulationThreshold(uint32_t temperatureC) {
 				I2C_Guard guard;
@@ -1469,12 +1475,17 @@ class BQ24295 {
 				return 0;
 			}
 			
+			uint8_t FaultState() {
+				return fault_state;
+			}
+			
 			bool IsInFaultState() {
 				I2C_Guard guard;
 				if (guard.Check()) {
 					return 0;
 				}
 				uint8_t reg = getRegister(0x09);
+				fault_state = reg;
 				return reg != 0;
 			}
 			
@@ -1511,6 +1522,7 @@ class BQ24295 {
 			friend class Setup;
 
 			bool devicePresent;
+			uint8_t fault_state;
 };
 
 
@@ -4036,8 +4048,8 @@ public:
 		bottom_short_press = false;
 		
 		menu_scroll = 0;
-		max_menu = 5;
-		max_menu_scroll = 2;
+		max_menu = 6;
+		max_menu_scroll = 3;
 		menu_selection = 0;
 		
 		ring_or_duck = false;
@@ -4539,7 +4551,7 @@ public:
 							sdd1306.ClearAttr();
 							DisplayTest();
 						} break;
-				case	5: {
+				case	6: {
 							sdd1306.ClearAttr();
 							DisplayVersion();
 						} break;
@@ -5077,8 +5089,10 @@ public:
 			} else {
 				sdd1306.PlaceCustomChar(7,1,0x7B);
 			}
+			bool bq24295_fault = false;
 			if (bq24295.DevicePresent()) {
 				if (bq24295.IsInFaultState()) {
+					bq24295_fault = true;
 					sdd1306.PlaceCustomChar(7,2,0x01);
 				} else {
 					sdd1306.PlaceCustomChar(7,2,0x7C);
@@ -5094,14 +5108,88 @@ public:
 			
 			sdd1306.Display();
 			delay(2000);
+			if (bq24295_fault) {
+				char str[9];
+				uint8_t s = bq24295.FaultState();
+				sprintf(str,"%c%c%c%c%c%c%c%c",
+					(s&0x01)?'1':'0',
+					(s&0x02)?'1':'0',
+					(s&0x04)?'1':'0',
+					(s&0x08)?'1':'0',
+					(s&0x10)?'1':'0',
+					(s&0x20)?'1':'0',
+					(s&0x40)?'1':'0',
+					(s&0x80)?'1':'0');
+				sdd1306.PlaceAsciiStr(0,2,str);
+				sdd1306.Display();
+				delay(2000);
+			}
 		}
 	}
 	
 	void DisplayVersion() {
-		sdd1306.PlaceAsciiStr(0,0,"       ");
-		sdd1306.PlaceAsciiStr(0,1,"       ");
-		sdd1306.PlaceAsciiStr(0,2,"       ");
-		sdd1306.PlaceAsciiStr(0,3,"       ");
+
+		#define COMPUTE_BUILD_YEAR \
+			( \
+				(__DATE__[ 7] - '0') * 1000 + \
+				(__DATE__[ 8] - '0') *  100 + \
+				(__DATE__[ 9] - '0') *   10 + \
+				(__DATE__[10] - '0') \
+			)
+
+
+		#define COMPUTE_BUILD_DAY \
+			( \
+				((__DATE__[4] >= '0') ? (__DATE__[4] - '0') * 10 : 0) + \
+				(__DATE__[5] - '0') \
+			)
+
+		#define BUILD_MONTH_IS_JAN (__DATE__[0] == 'J' && __DATE__[1] == 'a' && __DATE__[2] == 'n')
+		#define BUILD_MONTH_IS_FEB (__DATE__[0] == 'F')
+		#define BUILD_MONTH_IS_MAR (__DATE__[0] == 'M' && __DATE__[1] == 'a' && __DATE__[2] == 'r')
+		#define BUILD_MONTH_IS_APR (__DATE__[0] == 'A' && __DATE__[1] == 'p')
+		#define BUILD_MONTH_IS_MAY (__DATE__[0] == 'M' && __DATE__[1] == 'a' && __DATE__[2] == 'y')
+		#define BUILD_MONTH_IS_JUN (__DATE__[0] == 'J' && __DATE__[1] == 'u' && __DATE__[2] == 'n')
+		#define BUILD_MONTH_IS_JUL (__DATE__[0] == 'J' && __DATE__[1] == 'u' && __DATE__[2] == 'l')
+		#define BUILD_MONTH_IS_AUG (__DATE__[0] == 'A' && __DATE__[1] == 'u')
+		#define BUILD_MONTH_IS_SEP (__DATE__[0] == 'S')
+		#define BUILD_MONTH_IS_OCT (__DATE__[0] == 'O')
+		#define BUILD_MONTH_IS_NOV (__DATE__[0] == 'N')
+		#define BUILD_MONTH_IS_DEC (__DATE__[0] == 'D')
+
+
+		#define COMPUTE_BUILD_MONTH \
+			( \
+				(BUILD_MONTH_IS_JAN) ?  1 : \
+				(BUILD_MONTH_IS_FEB) ?  2 : \
+				(BUILD_MONTH_IS_MAR) ?  3 : \
+				(BUILD_MONTH_IS_APR) ?  4 : \
+				(BUILD_MONTH_IS_MAY) ?  5 : \
+				(BUILD_MONTH_IS_JUN) ?  6 : \
+				(BUILD_MONTH_IS_JUL) ?  7 : \
+				(BUILD_MONTH_IS_AUG) ?  8 : \
+				(BUILD_MONTH_IS_SEP) ?  9 : \
+				(BUILD_MONTH_IS_OCT) ? 10 : \
+				(BUILD_MONTH_IS_NOV) ? 11 : \
+				(BUILD_MONTH_IS_DEC) ? 12 : \
+				/* error default */  99 \
+			)
+
+		#define BUILD_DATE_IS_BAD (__DATE__[0] == '?')
+
+		#define BUILD_YEAR  ((BUILD_DATE_IS_BAD) ? 99 : COMPUTE_BUILD_YEAR)
+		#define BUILD_MONTH ((BUILD_DATE_IS_BAD) ? 99 : COMPUTE_BUILD_MONTH)
+		#define BUILD_DAY   ((BUILD_DATE_IS_BAD) ? 99 : COMPUTE_BUILD_DAY)
+			
+		char str[16];
+		sdd1306.PlaceAsciiStr(0,0,"        ");
+		sprintf(str,"%02d%02d%04d",
+			BUILD_MONTH,
+			BUILD_DAY,
+			BUILD_YEAR);
+		sdd1306.PlaceAsciiStr(0,1,str);
+		sdd1306.PlaceAsciiStr(0,2,__TIME__);
+		sdd1306.PlaceAsciiStr(0,3,"        ");
 		sdd1306.Display();
 		delay(2000);
 	}
@@ -6617,6 +6705,7 @@ int main(void)
 
 	if (bq24295.DevicePresent()) {
 		bq24295.SetBoostVoltage(4550);
+		bq24295.DisableWatchdog();
 	}
 
 	EEPROM settings;
@@ -6673,6 +6762,11 @@ int main(void)
 	SX1280 sx1280(sdd1306, settings); g_sx1280 = &sx1280;
 	sx1280.Init(false);
 
+	if (bq24295.DevicePresent()) {
+		bq24295.SetBoostVoltage(4550);
+		bq24295.DisableWatchdog();
+	}
+	
 	FT25H16S ft25h16s; g_ft25h16s = &ft25h16s;
 		
 	UI ui(settings, sdd1306, sx1280, random, ft25h16s, bq24295);
