@@ -1705,6 +1705,9 @@ class SDD1306 {
 				if (guard.Check()) {
 					return;
 				}
+				
+				(void)duck_font_raw_len;
+				
 				uint8_t buf[65];
 				buf[0] = 0x40;
 				for (uint32_t y=0; y<4; y++) {
@@ -5129,6 +5132,9 @@ public:
 	
 	void DisplayVersion() {
 
+#include "build_number.h"
+		(void) build_number_len;
+
 		#define COMPUTE_BUILD_YEAR \
 			( \
 				(__DATE__[ 7] - '0') * 1000 + \
@@ -5189,7 +5195,13 @@ public:
 			BUILD_YEAR);
 		sdd1306.PlaceAsciiStr(0,1,str);
 		sdd1306.PlaceAsciiStr(0,2,__TIME__);
-		sdd1306.PlaceAsciiStr(0,3,"        ");
+		
+		strcpy(str, "build    ");
+		for (int32_t c=0; build_number[c] != 0x0a && build_number[c] != 0; c++) {
+			str[c+5] = build_number[c];
+		}
+		sdd1306.PlaceAsciiStr(0,3,str);
+
 		sdd1306.Display();
 		delay(2000);
 	}
@@ -5465,7 +5477,6 @@ private:
 	}
 
 	void fade_ring() {
-		uint8_t walk = 0;
 		for (;;) {
 
 			rgba color;
@@ -6768,6 +6779,8 @@ int main(void)
 	}
 	
 	FT25H16S ft25h16s; g_ft25h16s = &ft25h16s;
+	
+	usb_init();
 		
 	UI ui(settings, sdd1306, sx1280, random, ft25h16s, bq24295);
 	// For IRQ handlers only
