@@ -784,7 +784,11 @@ public:
 		Chip_GPIO_SetPinDIROutput(LPC_GPIO, (FLASH_HOLD_PIN>>8), (FLASH_HOLD_PIN&0xFF));
 	}
 	
-	uint32_t read_device_id() {
+	bool DevicePresent() {
+		return read_rdid_id() == 0x000e4015;
+	}
+	
+	uint32_t read_rdid_id() {
 		// MOSI0
 		Chip_IOCON_PinMuxSet(LPC_IOCON, (FLASH_MOSI0_PIN>>8), (FLASH_MOSI0_PIN&0xFF), IOCON_FUNC0);
 
@@ -793,7 +797,7 @@ public:
 		// CSEL to low
 		Chip_GPIO_SetPinState(LPC_GPIO, (FLASH_CSEL_PIN>>8), (FLASH_CSEL_PIN&0xFF), false);
 
-		push_byte(0x90);
+		push_byte(0x9F);
 		push_byte(0x00);
 		push_byte(0x00);
 		push_byte(0x00);
@@ -902,14 +906,41 @@ public:
 		
 		memcpy(radio_messages[0], " QUACK! ", 8);
 		memcpy(radio_messages[1], "  NOW!  ", 8);
-		memcpy(radio_messages[2], "  BAR!  ", 8);
-		memcpy(radio_messages[3], "LIGHTS! ", 8);
-		memcpy(radio_messages[4], " CAMP!  ", 8);
+		memcpy(radio_messages[2], "LASERS! ", 8);
+		memcpy(radio_messages[3], "SAFETY! ", 8);
+		memcpy(radio_messages[4], "ASSEMBLE", 8);
 		memcpy(radio_messages[5], "IM DRUNK", 8);
 		memcpy(radio_messages[6], "IM HIGH!", 8);
 		memcpy(radio_messages[7], "IM GONE!", 8);
 
 		memcpy(&radio_name[0], "  DUCK  ", 8);
+	}
+	
+	void Reset() {
+		bird_color_index = 0;
+		bird_color = bird_colors[bird_color_index];
+		ring_color_index = 5;
+		ring_color = ring_colors[ring_color_index];
+		program_count = 27;
+		program_curr = 0;
+		program_change_count = 0;
+		brightness = 1;
+		radio_enabled = true;
+		radio_message = 0;
+		radio_color = 0;
+		
+		memcpy(radio_messages[0], " QUACK! ", 8);
+		memcpy(radio_messages[1], "  NOW!  ", 8);
+		memcpy(radio_messages[2], "LASERS! ", 8);
+		memcpy(radio_messages[3], "SAFETY! ", 8);
+		memcpy(radio_messages[4], "ASSEMBLE", 8);
+		memcpy(radio_messages[5], "IM DRUNK", 8);
+		memcpy(radio_messages[6], "IM HIGH!", 8);
+		memcpy(radio_messages[7], "IM GONE!", 8);
+		
+		memcpy(&radio_name[0], "  DUCK  ", 8);
+		
+		Save();
 	}
 
 	void Load() {
@@ -932,30 +963,7 @@ public:
 			radio_messages[0][0] < 0x20 ||
 			radio_name[0] < 0x20) {
 				
-			bird_color_index = 0;
-			bird_color = bird_colors[bird_color_index];
-			ring_color_index = 5;
-			ring_color = ring_colors[ring_color_index];
-			program_count = 27;
-			program_curr = 0;
-			program_change_count = 0;
-			brightness = 1;
-			radio_enabled = true;
-			radio_message = 0;
-			radio_color = 0;
-			
-			memcpy(radio_messages[0], " QUACK! ", 8);
-			memcpy(radio_messages[1], "  NOW!  ", 8);
-			memcpy(radio_messages[2], "  BAR!  ", 8);
-			memcpy(radio_messages[3], "LIGHTS! ", 8);
-			memcpy(radio_messages[4], " CAMP!  ", 8);
-			memcpy(radio_messages[5], "IM DRUNK", 8);
-			memcpy(radio_messages[6], "IM HIGH!", 8);
-			memcpy(radio_messages[7], "IM GONE!", 8);
-			
-			memcpy(&radio_name[0], "  DUCK  ", 8);
-			
-			Save();
+			Reset();
 		}
 		
 		loaded = true;
@@ -1461,6 +1469,15 @@ class BQ24295 {
 				return 0;
 			}
 			
+			bool IsInFaultState() {
+				I2C_Guard guard;
+				if (guard.Check()) {
+					return 0;
+				}
+				uint8_t reg = getRegister(0x09);
+				return reg != 0;
+			}
+			
 			bool DevicePresent() const { return devicePresent; }
 
 	private:
@@ -1804,6 +1821,29 @@ class Setup {
 				InitTimer();
 			}
 
+			void ProbeI2CSlaves(SDD1306 &sdd1306, BQ24295 &bq24295) {
+				int i;
+				uint8_t ch[2];
+
+				for (i = 0; i <= 0x7F; i++) {
+					if (!(i & 0x0F)) {
+					}
+					if ((i <= 7) || (i > 0x78)) {
+						continue;
+					}
+					if (Chip_I2C_MasterRead(I2C0, i, ch, 1 + (i == 0x48)) > 0) {
+						switch(i) {
+							case	sdd1306.i2caddr:
+									sdd1306.devicePresent = true;
+									break;
+							case	bq24295.i2caddr:
+									bq24295.devicePresent = true;
+									break;
+						}
+					}
+				}
+			}
+
 	private:
 	
             void InitWWDT() {
@@ -1865,28 +1905,6 @@ class Setup {
 				Chip_TIMER_Enable(LPC_TIMER32_0);
 			}
 
-			void ProbeI2CSlaves(SDD1306 &sdd1306, BQ24295 &bq24295) {
-				int i;
-				uint8_t ch[2];
-
-				for (i = 0; i <= 0x7F; i++) {
-					if (!(i & 0x0F)) {
-					}
-					if ((i <= 7) || (i > 0x78)) {
-						continue;
-					}
-					if (Chip_I2C_MasterRead(I2C0, i, ch, 1 + (i == 0x48)) > 0) {
-						switch(i) {
-							case	sdd1306.i2caddr:
-									sdd1306.devicePresent = true;
-									break;
-							case	bq24295.i2caddr:
-									bq24295.devicePresent = true;
-									break;
-						}
-					}
-				}
-			}
 };  // class Setup {
 
 
@@ -2704,6 +2722,10 @@ class SX1280 {
 				WaitOnBusy( );
 
 				enableIRQ( );
+			}
+			
+			bool DevicePresent()  {
+				return GetFirmwareVersion() == 0x0000a9b5;
 			}
 
 			uint16_t GetFirmwareVersion( void )
@@ -3949,14 +3971,18 @@ class UI {
 	SDD1306 &sdd1306;
 	SX1280 &sx1280;
 	Random &random;
+	FT25H16S &ft25h16s;
+	BQ24295 &bq24295;
 	
 	uint32_t mode;
 	uint32_t mode_start_time;
 
-	bool top_long_press;
+	uint32_t top_fall_time;
+	bool top_button_down;
 	bool top_short_press;
 	
-	bool bottom_long_press;
+	uint32_t bottom_fall_time;
+	bool bottom_button_down;
 	bool bottom_short_press;
 	
 	int32_t previous_mode;
@@ -3985,11 +4011,15 @@ public:
 	UI(EEPROM &_settings,
 	   SDD1306 &_sdd1306,
 	   SX1280 &_sx1280,
-	   Random &_random):
+	   Random &_random,
+	   FT25H16S &_ft25h16s,
+	   BQ24295 &_bq24295):
 		settings(_settings),
 		sdd1306(_sdd1306),
 		sx1280(_sx1280),
-		random(_random) {
+		random(_random),
+		ft25h16s(_ft25h16s),
+		bq24295(_bq24295) {
 	}
 
 	const uint32_t PRIMARY_BUTTON = 0x0119;
@@ -3998,14 +4028,16 @@ public:
 	void Init() {
 		mode = 0;
 		
-		top_long_press = false;
+		top_fall_time = 0;
+		top_button_down = false;
 		top_short_press = false;
-		bottom_long_press = false;
+		bottom_fall_time = 0;
+		bottom_button_down = false;
 		bottom_short_press = false;
 		
 		menu_scroll = 0;
-		max_menu = 7;
-		max_menu_scroll = 4;
+		max_menu = 5;
+		max_menu_scroll = 2;
 		menu_selection = 0;
 		
 		ring_or_duck = false;
@@ -4013,6 +4045,8 @@ public:
 		rgb_selection = 0;
 		
 		radio_settings_selection = 0;
+		
+		radio_selection = 0;
 		
 		radio_name_selection = 0;
 		
@@ -4049,33 +4083,33 @@ public:
 	}
 
 	void HandleINT1IRQ() {
-		static uint32_t fall_time = 0;
 		uint32_t timer_ms = Chip_TIMER_ReadCount(LPC_TIMER32_0);
 		if ( (Chip_PININT_GetFallStates(LPC_PININT) & PININTCH1) ) {
 			Chip_PININT_ClearFallStates(LPC_PININT, PININTCH1);
-			fall_time = timer_ms;
+			top_fall_time = timer_ms;
+			top_button_down = true;
 			Chip_PININT_ClearIntStatus(LPC_PININT, PININTCH1);
 		}
 
 		if ( (Chip_PININT_GetRiseStates(LPC_PININT) & PININTCH1) ) {
 			Chip_PININT_ClearRiseStates(LPC_PININT, PININTCH1);
-			if ( (timer_ms - fall_time) > 500) {
-				top_long_press = true;
-			} else if ( (timer_ms - fall_time) > 10) {
+			if ( top_button_down && (timer_ms - top_fall_time) > 10 && (timer_ms - top_fall_time) < 250) {
 				top_short_press = true;
 			}
+			top_button_down = false;
 			Chip_PININT_ClearIntStatus(LPC_PININT, PININTCH1);
 		}
 	}
 	
 	void TopLongPress() {
-		if (top_long_press) {
-			top_long_press = false;
+		uint32_t timer_ms = Chip_TIMER_ReadCount(LPC_TIMER32_0);
+		if ( top_button_down && (timer_ms - top_fall_time) > 500) {
 			if (Mode() != 0) {
 				SetMode(system_clock_ms, 0);
 			} else {
 				SetMode(system_clock_ms, 2);
 			}
+			top_button_down = false;
 		}
 	}
 
@@ -4115,33 +4149,33 @@ public:
 	}
 	
 	void HandleINT2IRQ() {
-		static uint32_t fall_time = 0;
 		uint32_t timer_ms = Chip_TIMER_ReadCount(LPC_TIMER32_0);
 		if ( (Chip_PININT_GetFallStates(LPC_PININT) & PININTCH2) ) {
 			Chip_PININT_ClearFallStates(LPC_PININT, PININTCH2);
-			fall_time = timer_ms;
+			bottom_fall_time = timer_ms;
+			bottom_button_down = true;
 			Chip_PININT_ClearIntStatus(LPC_PININT, PININTCH2);
 		}
 
 		if ( (Chip_PININT_GetRiseStates(LPC_PININT) & PININTCH2) ) {
 			Chip_PININT_ClearRiseStates(LPC_PININT, PININTCH2);
-			Chip_PININT_ClearIntStatus(LPC_PININT, PININTCH2);
-			if ( (timer_ms - fall_time) > 500) {
-				bottom_long_press = true;
-			} else if ( (timer_ms - fall_time) > 10) {
+			if ( bottom_button_down && (timer_ms - bottom_fall_time) > 10 && (timer_ms - bottom_fall_time) < 250) {
 				bottom_short_press = true;
 			}
+			bottom_button_down = false;
+			Chip_PININT_ClearIntStatus(LPC_PININT, PININTCH2);
 		}
 	}
 	
 	void BottomLongPress() {
-		if (bottom_long_press) {
-			bottom_long_press = false;
+		uint32_t timer_ms = Chip_TIMER_ReadCount(LPC_TIMER32_0);
+		if ( bottom_button_down && (timer_ms - bottom_fall_time) > 500) {
 			if (Mode() != 0) {
 				SetMode(system_clock_ms, 0);
 			} else {
 				SetMode(system_clock_ms, 5);
 			}
+			bottom_button_down = false;
 		}
 	}
 	
@@ -4449,10 +4483,9 @@ public:
 			"1COLORS ",
 			"2RADIO  ",
 			"3STATS  ",
-			"4NOTHING",
-			"5HERE   ",
-			"6REALLY ",
-			"7QUACK! ",
+			"4RESET  ",
+			"5TEST   ",
+			"6VERSION",
 		};
 		for (int32_t c=0; c<3; c++) {
 			sdd1306.PlaceAsciiStr(0,c+1,menu[c+menu_scroll]);
@@ -4499,14 +4532,16 @@ public:
 				case	3: {
 						} break;
 				case	4: {
+							settings.Reset();
+							NVIC_SystemReset();
 						} break;
 				case	5: {
+							sdd1306.ClearAttr();
+							DisplayTest();
 						} break;
-				case	6: {
-						} break;
-				case	7: {
-						} break;
-				case	8: {
+				case	5: {
+							sdd1306.ClearAttr();
+							DisplayVersion();
 						} break;
 			}
 		}
@@ -5012,6 +5047,63 @@ public:
 			}
 		}
 		DisplayMessageSettings();
+	}
+	
+	void DisplayTest() {
+		if (sdd1306.DevicePresent()) {
+			sdd1306.PlaceAsciiStr(0,0,"        ");
+			sdd1306.PlaceAsciiStr(0,1,"        ");
+			sdd1306.PlaceAsciiStr(0,2,"        ");
+			sdd1306.PlaceAsciiStr(0,3,"        ");
+			for (int32_t c=2; c<7; c++) {
+				sdd1306.PlaceCustomChar(c,0,0x1B1+c-2);
+			}
+			for (int32_t c=2; c<7; c++) {
+				sdd1306.PlaceCustomChar(c,1,0x1B6+c-2);
+			}
+			for (int32_t c=1; c<7; c++) {
+				sdd1306.PlaceCustomChar(c,2,0x1BB+c-1);
+			}
+			for (int32_t c=1; c<7; c++) {
+				sdd1306.PlaceCustomChar(c,3,0x1C1+c-1);
+			}
+			if (sdd1306.DevicePresent()) {
+				sdd1306.PlaceCustomChar(7,0,0x7C);
+			} else {
+				sdd1306.PlaceCustomChar(7,0,0x7B);
+			}
+			if (sx1280.DevicePresent()) {
+				sdd1306.PlaceCustomChar(7,1,0x7C);
+			} else {
+				sdd1306.PlaceCustomChar(7,1,0x7B);
+			}
+			if (bq24295.DevicePresent()) {
+				if (bq24295.IsInFaultState()) {
+					sdd1306.PlaceCustomChar(7,2,0x01);
+				} else {
+					sdd1306.PlaceCustomChar(7,2,0x7C);
+				}
+			} else {
+				sdd1306.PlaceCustomChar(7,2,0x7B);
+			}
+			if (ft25h16s.DevicePresent()) {
+				sdd1306.PlaceCustomChar(7,3,0x7C);
+			} else {
+				sdd1306.PlaceCustomChar(7,3,0x7B);
+			}
+			
+			sdd1306.Display();
+			delay(2000);
+		}
+	}
+	
+	void DisplayVersion() {
+		sdd1306.PlaceAsciiStr(0,0,"       ");
+		sdd1306.PlaceAsciiStr(0,1,"       ");
+		sdd1306.PlaceAsciiStr(0,2,"       ");
+		sdd1306.PlaceAsciiStr(0,3,"       ");
+		sdd1306.Display();
+		delay(2000);
 	}
 	
 	void Display() {
@@ -6457,6 +6549,10 @@ extern "C" {
 			}
 		}
 
+		if ( (system_clock_ms % (1024*32)) == 0) {
+			//g_sx1280->SendMessage();
+		}
+		
 		g_effects->CheckPostTime();
 	}
 
@@ -6511,22 +6607,18 @@ int main(void)
 {
 	SystemCoreClockUpdate();
 
+	delay(100);
+	
 	SDD1306 sdd1306; g_sdd1306 = &sdd1306;
 	
 	BQ24295 bq24295;
-
+	
 	Setup setup(sdd1306, bq24295);
 
 	if (bq24295.DevicePresent()) {
-		bq24295.SetBoostUpperTemperatureLimit(80);
-		bq24295.SetInputCurrentLimit(900);
-		bq24295.EnableInputLimits();
-		bq24295.SetChipThermalRegulationThreshold(80);
-		bq24295.SetBoostVoltage(5126);
+		bq24295.SetBoostVoltage(4550);
 	}
-	
-	delay(50);
-	
+
 	EEPROM settings;
 	g_settings = &settings;
 	
@@ -6582,8 +6674,8 @@ int main(void)
 	sx1280.Init(false);
 
 	FT25H16S ft25h16s; g_ft25h16s = &ft25h16s;
-	
-	UI ui(settings, sdd1306, sx1280, random);
+		
+	UI ui(settings, sdd1306, sx1280, random, ft25h16s, bq24295);
 	// For IRQ handlers only
 	g_ui = &ui;
 	ui.Init();
