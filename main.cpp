@@ -4105,7 +4105,7 @@ public:
 
 		if ( (Chip_PININT_GetRiseStates(LPC_PININT) & PININTCH1) ) {
 			Chip_PININT_ClearRiseStates(LPC_PININT, PININTCH1);
-			if ( top_button_down && (timer_ms - top_fall_time) > 10 && (timer_ms - top_fall_time) < 250) {
+			if ( top_button_down && (timer_ms - top_fall_time) > 10 && (timer_ms - top_fall_time) < 400) {
 				top_short_press = true;
 			}
 			top_button_down = false;
@@ -4171,7 +4171,7 @@ public:
 
 		if ( (Chip_PININT_GetRiseStates(LPC_PININT) & PININTCH2) ) {
 			Chip_PININT_ClearRiseStates(LPC_PININT, PININTCH2);
-			if ( bottom_button_down && (timer_ms - bottom_fall_time) > 10 && (timer_ms - bottom_fall_time) < 250) {
+			if ( bottom_button_down && (timer_ms - bottom_fall_time) > 10 && (timer_ms - bottom_fall_time) < 400) {
 				bottom_short_press = true;
 			}
 			bottom_button_down = false;
