@@ -13,7 +13,7 @@
 
 #include "duck_font.h"
 
-// #define ENABLE_USB_MSC
+//#define ENABLE_USB_MSC
 
 #ifdef ENABLE_USB_MSC
 
@@ -64,6 +64,8 @@ typedef struct
 		int            num_entries;
 	} priv;
 } emfat_t;
+
+static emfat_t Emfat;
 
 #define EMFAT_ENCODE_CMA_TIME(D,M,Y,h,m,s) \
     ((((((Y)-1980) << 9) | ((M) << 5) | (D)) << 16) | \
@@ -376,9 +378,6 @@ static bool emfat_init(emfat_t *emfat, const char *label, emfat_entry_t *entries
 	emfat->priv.last_entry = entries;
 	emfat->disk_sectors = clust * SECT_PER_CLUST + emfat->priv.root_lba;
 	emfat->vol_size = (uint64_t)emfat->disk_sectors * SECT;
-	/* calc cyl number */
-//	i = ((emfat->disk_sectors + 63*255 - 1) / (63*255));
-//	emfat->disk_sectors = i * 63*255;
 	return true;
 }
 
@@ -571,9 +570,17 @@ static void fill_entry(dir_entry *entry, const char *name, uint8_t attr, uint32_
 	memset(entry->name, ' ', FILE_NAME_SHRT_LEN + FILE_NAME_EXTN_LEN);
 	memcpy(entry->name, name, l1);
 	memcpy(entry->extn, name + dot_pos + 1, l2);
-	for (i = 0; i < FILE_NAME_SHRT_LEN + FILE_NAME_EXTN_LEN; i++)
-		if (entry->name[i] >= 'a' && entry->name[i] <= 'z')
+	
+	for (i = 0; i < FILE_NAME_SHRT_LEN; i++) {
+		if (entry->name[i] >= 'a' && entry->name[i] <= 'z') {
 			entry->name[i] -= 0x20;
+		}
+	}
+	for (i = 0; i < FILE_NAME_EXTN_LEN; i++) {
+		if (entry->extn[i] >= 'a' && entry->extn[i] <= 'z') {
+			entry->extn[i] -= 0x20;
+		}
+	}
 
 	entry->attr = attr;
 	entry->reserved = 24;
@@ -741,530 +748,26 @@ static void emfat_write(emfat_t *emfat, const uint8_t *data, uint32_t sector, in
 	}
 }
 
-#define FEBRUARY		2
-#define	STARTOFTIME		1970
-#define SECDAY			86400L
-#define SECYR			(SECDAY * 365)
-#define	leapyear(year)		((year) % 4 == 0)
-#define	days_in_year(a)		(leapyear(a) ? 366 : 365)
-#define	days_in_month(a)	(month_days[(a) - 1])
-
-static int month_days[12] = {
-	31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31
-};
-
-static uint32_t emfat_cma_time_from_unix(uint32_t tim)
+static void translate_rd( uint32_t offset, uint8_t** buff_adr, uint32_t length, uint32_t high_offset)
 {
-	register int i;
-	register long tmp, day;
-    int ymd[3];
-    int hms[3];
-
-	day = tim / SECDAY;
-	tmp = tim % SECDAY;
-
-	/* Hours, minutes, seconds are easy */
-
-	hms[0] = tmp / 3600;
-	hms[1] = (tmp % 3600) / 60;
-	hms[2] = (tmp % 3600) % 60;
-
-	/* Number of years in days */
-	for (i = STARTOFTIME; day >= days_in_year(i); i++)
-		day -= days_in_year(i);
-	ymd[0] = i;
-
-	/* Number of months in days left */
-	if (leapyear(ymd[0])) {
-		days_in_month(FEBRUARY) = 29;
-	}
-	for (i = 1; day >= days_in_month(i); i++) {
-		day -= days_in_month(i);
-	}
-	days_in_month(FEBRUARY) = 28;
-	ymd[1] = i;
-
-	/* Days are what is left over (+1) from all that. */
-	ymd[2] = day + 1;
-    
-    return EMFAT_ENCODE_CMA_TIME(ymd[2], ymd[1], ymd[0], hms[0], hms[1], hms[2]);
+	emfat_read(&Emfat, (*buff_adr), offset / SECT, length / SECT);
 }
 
-
-
-#ifdef __cplusplus
-extern "C"
+static void translate_wr( uint32_t offset, uint8_t** buff_adr, uint32_t length, uint32_t high_offset)
 {
-#endif
-
-const uint8_t USB_DeviceDescriptor[] = {
-	USB_DEVICE_DESC_SIZE,				/* bLength */
-	USB_DEVICE_DESCRIPTOR_TYPE,			/* bDescriptorType */
-	WBVAL(0x0200),						/* bcdUSB */
-	0xEF,								/* bDeviceClass */
-	0x02,								/* bDeviceSubClass */
-	0x01,								/* bDeviceProtocol */
-	USB_MAX_PACKET0,					/* bMaxPacketSize0 */
-	WBVAL(0x1FC9),						/* idVendor */
-	WBVAL(0x0083),						/* idProduct */
-	WBVAL(0x0100),						/* bcdDevice */
-	0x01,								/* iManufacturer */
-	0x02,								/* iProduct */
-	0x03,								/* iSerialNumber */
-	0x01								/* bNumConfigurations */
-};
-
-uint8_t USB_FsConfigDescriptor[] = {
-	/* Configuration 1 */
-	USB_CONFIGURATION_DESC_SIZE,			/* bLength */
-	USB_CONFIGURATION_DESCRIPTOR_TYPE,		/* bDescriptorType */
-	WBVAL(									/* wTotalLength */
-		USB_CONFIGURATION_DESC_SIZE     +
-		USB_INTERFACE_ASSOC_DESC_SIZE   +	/* interface association descriptor */
-		USB_INTERFACE_DESC_SIZE         +	/* communication control interface */
-		0x0013                          +	/* CDC functions */
-		1 * USB_ENDPOINT_DESC_SIZE      +	/* interrupt endpoint */
-		USB_INTERFACE_DESC_SIZE         +	/* communication data interface */
-		2 * USB_ENDPOINT_DESC_SIZE      +	/* bulk endpoints */
-		0
-		),
-	0x02,									/* bNumInterfaces */
-	0x01,									/* bConfigurationValue */
-	0x00,									/* iConfiguration */
-	USB_CONFIG_SELF_POWERED,				/* bmAttributes  */
-	USB_CONFIG_POWER_MA(500),				/* bMaxPower */
-
-	/* Interface association descriptor IAD*/
-	USB_INTERFACE_ASSOC_DESC_SIZE,		/* bLength */
-	USB_INTERFACE_ASSOCIATION_DESCRIPTOR_TYPE,	/* bDescriptorType */
-	USB_CDC_CIF_NUM,					/* bFirstInterface */
-	0x02,								/* bInterfaceCount */
-	CDC_COMMUNICATION_INTERFACE_CLASS,	/* bFunctionClass */
-	CDC_ABSTRACT_CONTROL_MODEL,			/* bFunctionSubClass */
-	0x00,								/* bFunctionProtocol */
-	0x04,								/* iFunction */
-
-	/* Interface 0, Alternate Setting 0, Communication class interface descriptor */
-	USB_INTERFACE_DESC_SIZE,			/* bLength */
-	USB_INTERFACE_DESCRIPTOR_TYPE,		/* bDescriptorType */
-	USB_CDC_CIF_NUM,					/* bInterfaceNumber: Number of Interface */
-	0x00,								/* bAlternateSetting: Alternate setting */
-	0x01,								/* bNumEndpoints: One endpoint used */
-	CDC_COMMUNICATION_INTERFACE_CLASS,	/* bInterfaceClass: Communication Interface Class */
-	CDC_ABSTRACT_CONTROL_MODEL,			/* bInterfaceSubClass: Abstract Control Model */
-	0x00,								/* bInterfaceProtocol: no protocol used */
-	0x04,								/* iInterface: */
-	/* Header Functional Descriptor*/
-	0x05,								/* bLength: CDC header Descriptor size */
-	CDC_CS_INTERFACE,					/* bDescriptorType: CS_INTERFACE */
-	CDC_HEADER,							/* bDescriptorSubtype: Header Func Desc */
-	WBVAL(CDC_V1_10),					/* bcdCDC 1.10 */
-	/* Call Management Functional Descriptor*/
-	0x05,								/* bFunctionLength */
-	CDC_CS_INTERFACE,					/* bDescriptorType: CS_INTERFACE */
-	CDC_CALL_MANAGEMENT,				/* bDescriptorSubtype: Call Management Func Desc */
-	0x01,								/* bmCapabilities: device handles call management */
-	USB_CDC_DIF_NUM,					/* bDataInterface: CDC data IF ID */
-	/* Abstract Control Management Functional Descriptor*/
-	0x04,								/* bFunctionLength */
-	CDC_CS_INTERFACE,					/* bDescriptorType: CS_INTERFACE */
-	CDC_ABSTRACT_CONTROL_MANAGEMENT,	/* bDescriptorSubtype: Abstract Control Management desc */
-	0x02,								/* bmCapabilities: SET_LINE_CODING, GET_LINE_CODING, SET_CONTROL_LINE_STATE supported */
-	/* Union Functional Descriptor*/
-	0x05,								/* bFunctionLength */
-	CDC_CS_INTERFACE,					/* bDescriptorType: CS_INTERFACE */
-	CDC_UNION,							/* bDescriptorSubtype: Union func desc */
-	USB_CDC_CIF_NUM,					/* bMasterInterface: Communication class interface is master */
-	USB_CDC_DIF_NUM,					/* bSlaveInterface0: Data class interface is slave 0 */
-	/* Endpoint 1 Descriptor*/
-	USB_ENDPOINT_DESC_SIZE,				/* bLength */
-	USB_ENDPOINT_DESCRIPTOR_TYPE,		/* bDescriptorType */
-	USB_CDC_INT_EP,						/* bEndpointAddress */
-	USB_ENDPOINT_TYPE_INTERRUPT,		/* bmAttributes */
-	WBVAL(0x0010),						/* wMaxPacketSize */
-	0x02,			/* 2ms */           /* bInterval */
-
-	/* Interface 1, Alternate Setting 0, Data class interface descriptor*/
-	USB_INTERFACE_DESC_SIZE,			/* bLength */
-	USB_INTERFACE_DESCRIPTOR_TYPE,		/* bDescriptorType */
-	USB_CDC_DIF_NUM,					/* bInterfaceNumber: Number of Interface */
-	0x00,								/* bAlternateSetting: no alternate setting */
-	0x02,								/* bNumEndpoints: two endpoints used */
-	CDC_DATA_INTERFACE_CLASS,			/* bInterfaceClass: Data Interface Class */
-	0x00,								/* bInterfaceSubClass: no subclass available */
-	0x00,								/* bInterfaceProtocol: no protocol used */
-	0x04,								/* iInterface: */
-	/* Endpoint, EP Bulk Out */
-	USB_ENDPOINT_DESC_SIZE,				/* bLength */
-	USB_ENDPOINT_DESCRIPTOR_TYPE,		/* bDescriptorType */
-	USB_CDC_OUT_EP,						/* bEndpointAddress */
-	USB_ENDPOINT_TYPE_BULK,				/* bmAttributes */
-	WBVAL(USB_FS_MAX_BULK_PACKET),		/* wMaxPacketSize */
-	0x00,								/* bInterval: ignore for Bulk transfer */
-	/* Endpoint, EP Bulk In */
-	USB_ENDPOINT_DESC_SIZE,				/* bLength */
-	USB_ENDPOINT_DESCRIPTOR_TYPE,		/* bDescriptorType */
-	USB_CDC_IN_EP,						/* bEndpointAddress */
-	USB_ENDPOINT_TYPE_BULK,				/* bmAttributes */
-	WBVAL(64),							/* wMaxPacketSize */
-	0x00,								/* bInterval: ignore for Bulk transfer */
-	/* Terminator */
-	0									/* bLength */
-};
-
-/**
- * USB String Descriptor (optional)
- */
-const uint8_t USB_StringDescriptor[] = {
-	/* Index 0x00: LANGID Codes */
-	0x04,								/* bLength */
-	USB_STRING_DESCRIPTOR_TYPE,			/* bDescriptorType */
-	WBVAL(0x0409),	/* US English */    /* wLANGID */
-	/* Index 0x01: Manufacturer */
-	(3 * 2 + 2),						/* bLength (13 Char + Type + lenght) */
-	USB_STRING_DESCRIPTOR_TYPE,			/* bDescriptorType */
-	'N', 0,
-	'X', 0,
-	'P', 0,
-	/* Index 0x02: Product */
-	(9 * 2 + 2),						/* bLength */
-	USB_STRING_DESCRIPTOR_TYPE,			/* bDescriptorType */
-	'V', 0,
-	'C', 0,
-	'O', 0,
-	'M', 0,
-	' ', 0,
-	'P', 0,
-	'o', 0,
-	'r', 0,
-	't', 0,
-	/* Index 0x03: Serial Number */
-	(6 * 2 + 2),						/* bLength (8 Char + Type + lenght) */
-	USB_STRING_DESCRIPTOR_TYPE,			/* bDescriptorType */
-	'N', 0,
-	'X', 0,
-	'P', 0,
-	'-', 0,
-	'7', 0,
-	'7', 0,
-	/* Index 0x04: Interface 1, Alternate Setting 0 */
-	( 4 * 2 + 2),						/* bLength (4 Char + Type + lenght) */
-	USB_STRING_DESCRIPTOR_TYPE,			/* bDescriptorType */
-	'V', 0,
-	'C', 0,
-	'O', 0,
-	'M', 0,
-};
-
-
-#ifdef __cplusplus
+	emfat_write(&Emfat, (*buff_adr), offset / SECT, length / SECT);
 }
-#endif
 
-
-#define VCOM_RX_BUF_SZ      512
-#define VCOM_TX_CONNECTED   _BIT(8)		/* connection state is for both RX/Tx */
-#define VCOM_TX_BUSY        _BIT(0)
-#define VCOM_RX_DONE        _BIT(0)
-#define VCOM_RX_BUF_FULL    _BIT(1)
-#define VCOM_RX_BUF_QUEUED  _BIT(2)
-#define VCOM_RX_DB_QUEUED   _BIT(3)
-
-typedef struct VCOM_DATA {
-	USBD_HANDLE_T hUsb;
-	USBD_HANDLE_T hCdc;
-	uint8_t *rx_buff;
-	uint16_t rx_rd_count;
-	uint16_t rx_count;
-	volatile uint16_t tx_flags;
-	volatile uint16_t rx_flags;
-} VCOM_DATA_T;
-
-VCOM_DATA_T g_vCOM;
-
-/* VCOM bulk EP_IN endpoint handler */
-static ErrorCode_t VCOM_bulk_in_hdlr(USBD_HANDLE_T hUsb, void *data, uint32_t event)
+static ErrorCode_t translate_verify( uint32_t offset, uint8_t* src, uint32_t length, uint32_t high_offset)
 {
-	VCOM_DATA_T *pVcom = (VCOM_DATA_T *) data;
-
-	if (event == USB_EVT_IN) {
-		pVcom->tx_flags &= ~VCOM_TX_BUSY;
+	uint8_t sector[SECT];
+	for (uint32_t c = 0; c < (length/SECT); c++) {
+		emfat_read(&Emfat, sector, c + (offset/SECT), SECT);
+		if (memcmp(sector, src + (c * SECT), SECT)) {
+			return ERR_FAILED;
+		}
 	}
 	return LPC_OK;
-}
-
-/* VCOM bulk EP_OUT endpoint handler */
-static ErrorCode_t VCOM_bulk_out_hdlr(USBD_HANDLE_T hUsb, void *data, uint32_t event)
-{
-	VCOM_DATA_T *pVcom = (VCOM_DATA_T *) data;
-
-	switch (event) {
-	case USB_EVT_OUT:
-		pVcom->rx_count = USBD_API->hw->ReadEP(hUsb, USB_CDC_OUT_EP, pVcom->rx_buff);
-		if (pVcom->rx_flags & VCOM_RX_BUF_QUEUED) {
-			pVcom->rx_flags &= ~VCOM_RX_BUF_QUEUED;
-			if (pVcom->rx_count != 0) {
-				pVcom->rx_flags |= VCOM_RX_BUF_FULL;
-			}
-
-		}
-		else if (pVcom->rx_flags & VCOM_RX_DB_QUEUED) {
-			pVcom->rx_flags &= ~VCOM_RX_DB_QUEUED;
-			pVcom->rx_flags |= VCOM_RX_DONE;
-		}
-		break;
-
-	case USB_EVT_OUT_NAK:
-		/* queue free buffer for RX */
-		if ((pVcom->rx_flags & (VCOM_RX_BUF_FULL | VCOM_RX_BUF_QUEUED)) == 0) {
-			USBD_API->hw->ReadReqEP(hUsb, USB_CDC_OUT_EP, pVcom->rx_buff, VCOM_RX_BUF_SZ);
-			pVcom->rx_flags |= VCOM_RX_BUF_QUEUED;
-		}
-		break;
-
-	default:
-		break;
-	}
-
-	return LPC_OK;
-}
-
-/* Set line coding call back routine */
-static ErrorCode_t VCOM_SetLineCode(USBD_HANDLE_T hCDC, CDC_LINE_CODING *line_coding)
-{
-	VCOM_DATA_T *pVcom = &g_vCOM;
-
-	/* Called when baud rate is changed/set. Using it to know host connection state */
-	pVcom->tx_flags = VCOM_TX_CONNECTED;	/* reset other flags */
-
-	return LPC_OK;
-}
-
-/* Virtual com port init routine */
-ErrorCode_t vcom_init(USBD_HANDLE_T hUsb, USB_CORE_DESCS_T *pDesc, USBD_API_INIT_PARAM_T *pUsbParam)
-{
-	USBD_CDC_INIT_PARAM_T cdc_param;
-	ErrorCode_t ret = LPC_OK;
-	uint32_t ep_indx;
-
-	g_vCOM.hUsb = hUsb;
-	memset((void *) &cdc_param, 0, sizeof(USBD_CDC_INIT_PARAM_T));
-	cdc_param.mem_base = pUsbParam->mem_base;
-	cdc_param.mem_size = pUsbParam->mem_size;
-	cdc_param.cif_intf_desc = (uint8_t *) find_IntfDesc(pDesc->high_speed_desc, CDC_COMMUNICATION_INTERFACE_CLASS);
-	cdc_param.dif_intf_desc = (uint8_t *) find_IntfDesc(pDesc->high_speed_desc, CDC_DATA_INTERFACE_CLASS);
-	cdc_param.SetLineCode = VCOM_SetLineCode;
-
-	ret = USBD_API->cdc->init(hUsb, &cdc_param, &g_vCOM.hCdc);
-
-	if (ret == LPC_OK) {
-		/* allocate transfer buffers */
-		g_vCOM.rx_buff = (uint8_t *) cdc_param.mem_base;
-		cdc_param.mem_base += VCOM_RX_BUF_SZ;
-		cdc_param.mem_size -= VCOM_RX_BUF_SZ;
-
-		/* register endpoint interrupt handler */
-		ep_indx = (((USB_CDC_IN_EP & 0x0F) << 1) + 1);
-		ret = USBD_API->core->RegisterEpHandler(hUsb, ep_indx, VCOM_bulk_in_hdlr, &g_vCOM);
-		if (ret == LPC_OK) {
-			/* register endpoint interrupt handler */
-			ep_indx = ((USB_CDC_OUT_EP & 0x0F) << 1);
-			ret = USBD_API->core->RegisterEpHandler(hUsb, ep_indx, VCOM_bulk_out_hdlr, &g_vCOM);
-
-		}
-		/* update mem_base and size variables for cascading calls. */
-		pUsbParam->mem_base = cdc_param.mem_base;
-		pUsbParam->mem_size = cdc_param.mem_size;
-	}
-
-	return ret;
-}
-
-static INLINE uint32_t vcom_connected(void) {
-	return g_vCOM.tx_flags & VCOM_TX_CONNECTED;
-}
-
-/* Virtual com port buffered read routine */
-uint32_t vcom_bread(uint8_t *pBuf, uint32_t buf_len)
-{
-	VCOM_DATA_T *pVcom = &g_vCOM;
-	uint16_t cnt = 0;
-	/* read from the default buffer if any data present */
-	if (pVcom->rx_count) {
-		cnt = (pVcom->rx_count < buf_len) ? pVcom->rx_count : buf_len;
-		memcpy(pBuf, pVcom->rx_buff, cnt);
-		pVcom->rx_rd_count += cnt;
-
-		/* enter critical section */
-		NVIC_DisableIRQ(USB0_IRQn);
-		if (pVcom->rx_rd_count >= pVcom->rx_count) {
-			pVcom->rx_flags &= ~VCOM_RX_BUF_FULL;
-			pVcom->rx_rd_count = pVcom->rx_count = 0;
-		}
-		/* exit critical section */
-		NVIC_EnableIRQ(USB0_IRQn);
-	}
-	return cnt;
-
-}
-
-/* Virtual com port read routine */
-ErrorCode_t vcom_read_req(uint8_t *pBuf, uint32_t len)
-{
-	VCOM_DATA_T *pVcom = &g_vCOM;
-
-	/* check if we queued Rx buffer */
-	if (pVcom->rx_flags & (VCOM_RX_BUF_QUEUED | VCOM_RX_DB_QUEUED)) {
-		return ERR_BUSY;
-	}
-	/* enter critical section */
-	NVIC_DisableIRQ(USB0_IRQn);
-	/* if not queue the request and return 0 bytes */
-	USBD_API->hw->ReadReqEP(pVcom->hUsb, USB_CDC_OUT_EP, pBuf, len);
-	/* exit critical section */
-	NVIC_EnableIRQ(USB0_IRQn);
-	pVcom->rx_flags |= VCOM_RX_DB_QUEUED;
-
-	return LPC_OK;
-}
-
-/* Gets current read count. */
-uint32_t vcom_read_cnt(void)
-{
-	VCOM_DATA_T *pVcom = &g_vCOM;
-	uint32_t ret = 0;
-
-	if (pVcom->rx_flags & VCOM_RX_DONE) {
-		ret = pVcom->rx_count;
-		pVcom->rx_count = 0;
-	}
-
-	return ret;
-}
-
-/* Virtual com port write routine*/
-uint32_t vcom_write(const uint8_t *pBuf, uint32_t len)
-{
-	VCOM_DATA_T *pVcom = &g_vCOM;
-	uint32_t ret = 0;
-
-	if ( (pVcom->tx_flags & VCOM_TX_CONNECTED) && ((pVcom->tx_flags & VCOM_TX_BUSY) == 0) ) {
-		pVcom->tx_flags |= VCOM_TX_BUSY;
-
-		/* enter critical section */
-		NVIC_DisableIRQ(USB0_IRQn);
-		ret = USBD_API->hw->WriteEP(pVcom->hUsb, USB_CDC_IN_EP, pBuf, len);
-		/* exit critical section */
-		NVIC_EnableIRQ(USB0_IRQn);
-	}
-
-	return ret;
-}
-
-static USBD_HANDLE_T g_hUsb;
-//static uint8_t g_rxBuff[256];
-const  USBD_API_T *g_pUsbApi;
-
-/* Initialize pin and clocks for USB0/USB1 port */
-static void usb_pin_clk_init(void)
-{
-	/* enable USB main clock */
-	Chip_Clock_SetUSBClockSource(SYSCTL_USBCLKSRC_PLLOUT, 1);
-	/* Enable AHB clock to the USB block and USB RAM. */
-	Chip_Clock_EnablePeriphClock(SYSCTL_CLOCK_USB);
-//	Chip_Clock_EnablePeriphClock(SYSCTL_CLOCK_USBRAM);
-	/* power UP USB Phy */
-	Chip_SYSCTL_PowerUp(SYSCTL_POWERDOWN_USBPAD_PD);
-}
-
-/* Find the address of interface descriptor for given class type. */
-USB_INTERFACE_DESCRIPTOR *find_IntfDesc(const uint8_t *pDesc, uint32_t intfClass)
-{
-	USB_COMMON_DESCRIPTOR *pD;
-	USB_INTERFACE_DESCRIPTOR *pIntfDesc = 0;
-	uint32_t next_desc_adr;
-
-	pD = (USB_COMMON_DESCRIPTOR *) pDesc;
-	next_desc_adr = (uint32_t) pDesc;
-
-	while (pD->bLength) {
-		/* is it interface descriptor */
-		if (pD->bDescriptorType == USB_INTERFACE_DESCRIPTOR_TYPE) {
-
-			pIntfDesc = (USB_INTERFACE_DESCRIPTOR *) pD;
-			/* did we find the right interface descriptor */
-			if (pIntfDesc->bInterfaceClass == intfClass) {
-				break;
-			}
-		}
-		pIntfDesc = 0;
-		next_desc_adr = (uint32_t) pD + pD->bLength;
-		pD = (USB_COMMON_DESCRIPTOR *) next_desc_adr;
-	}
-
-	return pIntfDesc;
-}
-
-
-static int usb_init()
-{
-	USBD_API_INIT_PARAM_T usb_param;
-	USB_CORE_DESCS_T desc;
-	ErrorCode_t ret = LPC_OK;
-	
-	/* enable clocks and pinmux */
-	usb_pin_clk_init();
-
-	/* initialize USBD ROM API pointer. */
-	g_pUsbApi = (const USBD_API_T *) LPC_ROM_API->usbdApiBase;
-	
-	/* initialize call back structures */
-	memset((void *) &usb_param, 0, sizeof(USBD_API_INIT_PARAM_T));
-	usb_param.usb_reg_base = LPC_USB0_BASE;
-	/*	WORKAROUND for artf44835 ROM driver BUG:
-	    Code clearing STALL bits in endpoint reset routine corrupts memory area
-	    next to the endpoint control data. For example When EP0, EP1_IN, EP1_OUT,
-	    EP2_IN are used we need to specify 3 here. But as a workaround for this
-	    issue specify 4. So that extra EPs control structure acts as padding buffer
-	    to avoid data corruption. Corruption of padding memory doesn’t affect the
-	    stack/program behaviour.
-	 */
-	usb_param.max_num_ep = 3 + 1;
-	usb_param.mem_base = USB_STACK_MEM_BASE;
-	usb_param.mem_size = USB_STACK_MEM_SIZE;
-
-	/* Set the USB descriptors */
-	desc.device_desc = (uint8_t *) &USB_DeviceDescriptor[0];
-	desc.string_desc = (uint8_t *) &USB_StringDescriptor[0];
-	/* Note, to pass USBCV test full-speed only devices should have both
-	   descriptor arrays point to same location and device_qualifier set to 0.
-	 */
-	desc.high_speed_desc = (uint8_t *) &USB_FsConfigDescriptor[0];
-	desc.full_speed_desc = (uint8_t *) &USB_FsConfigDescriptor[0];
-	desc.device_qualifier = 0;
-
-	/* USB Initialization */
-	ret = USBD_API->hw->Init(&g_hUsb, &desc, &usb_param);
-
-	if (ret == LPC_OK) {
-		/*	WORKAROUND for artf32219 ROM driver BUG:
-		    The mem_base parameter part of USB_param structure returned
-		    by Init() routine is not accurate causing memory allocation issues for
-		    further components.
-		 */
-		usb_param.mem_base = USB_STACK_MEM_BASE + (USB_STACK_MEM_SIZE - usb_param.mem_size);
-		/* Init VCOM interface */
-		ret = vcom_init(g_hUsb, &desc, &usb_param);
-		if (ret == LPC_OK) 
-		{
-			/*  enable USB interrupts */
-			NVIC_EnableIRQ(USB0_IRQn);
-			/* now connect */
-			USBD_API->hw->Connect(g_hUsb, 1);
-		}
-	}
-	
-	return 0;
 }
 
 #endif  // #ifdef ENABLE_USB_MSC
@@ -7403,6 +6906,7 @@ static SX1280 *g_sx1280 = 0;
 static SDD1306 *g_sdd1306 = 0;
 static EEPROM *g_settings = 0;
 static FT25H16S *g_ft25h16s = 0;
+static USBD_HANDLE_T g_hUsb;
 
 extern "C" {
 	
@@ -7466,24 +6970,12 @@ extern "C" {
 	void USB_IRQHandler(void)
 	{
 #ifdef ENABLE_USB_MSC
-		uint32_t *addr = (uint32_t *) LPC_USB->EPLISTSTART;
-
-		/*	WORKAROUND for artf32289 ROM driver BUG:
-			As part of USB specification the device should respond
-			with STALL condition for any unsupported setup packet. The host will send
-			new setup packet/request on seeing STALL condition for EP0 instead of sending
-			a clear STALL request. Current driver in ROM doesn't clear the STALL
-			condition on new setup packet which should be fixed.
-		 */
-		if ( LPC_USB->DEVCMDSTAT & _BIT(8) ) {	/* if setup packet is received */
-			addr[0] &= ~(_BIT(29));	/* clear EP0_OUT stall */
-			addr[2] &= ~(_BIT(29));	/* clear EP0_IN stall */
-		}
-		USBD_API->hw->ISR(g_hUsb);
+		const  USBD_API_T *pUsbApi = (const USBD_API_T *) LPC_ROM_API->usbdApiBase;
+		pUsbApi->hw->ISR(g_hUsb);
 #endif  // #ifdef ENABLE_USB_MSC
 	}
-}
 
+}
 
 #ifdef ENABLE_USB_MSC
 const char *autorun_file =
@@ -7516,8 +7008,225 @@ static void readme_read_proc(uint8_t *dest, int size, uint32_t offset, size_t us
 		len = size;
 	memcpy(dest, &readme_file[offset], len);
 }
-#endif  // #ifdef ENABLE_USB_MSC
 
+static bool usb_init()
+{
+	static const uint8_t USB_DeviceDescriptor[] =
+	{
+		USB_DEVICE_DESC_SIZE,              /* bLength */
+		USB_DEVICE_DESCRIPTOR_TYPE,        /* bDescriptorType */
+		WBVAL(0x0200), /* 2.00 */          /* bcdUSB */
+		0x00,                              /* bDeviceClass */
+		0x00,                              /* bDeviceSubClass */
+		0x00,                              /* bDeviceProtocol */
+		USB_MAX_PACKET0,                   /* bMaxPacketSize0 */
+		WBVAL(0x1FC9),                     /* idVendor */
+		WBVAL(0x0108),                     /* idProduct */
+		WBVAL(0x0100), /* 1.00 */          /* bcdDevice */
+		0x01,                              /* iManufacturer */
+		0x02,                              /* iProduct */
+		0x03,                              /* iSerialNumber */
+		0x01                               /* bNumConfigurations */
+	};
+
+	static uint8_t USB_FsConfigDescriptor[] = {
+		/* Configuration 1 */
+		USB_CONFIGURATION_DESC_SIZE,       /* bLength */
+		USB_CONFIGURATION_DESCRIPTOR_TYPE, /* bDescriptorType */
+		WBVAL(                             /* wTotalLength */
+		1*USB_CONFIGURATION_DESC_SIZE +
+		1*USB_INTERFACE_DESC_SIZE     +
+		2*USB_ENDPOINT_DESC_SIZE
+		),
+		0x01,                              /* bNumInterfaces */
+		0x01,                              /* bConfigurationValue */
+		0x00,                              /* iConfiguration */
+		USB_CONFIG_SELF_POWERED,           /* bmAttributes */
+		USB_CONFIG_POWER_MA(100),          /* bMaxPower */
+		
+		/* Interface 0, Alternate Setting 0, MSC Class */
+		USB_INTERFACE_DESC_SIZE,           /* bLength */
+		USB_INTERFACE_DESCRIPTOR_TYPE,     /* bDescriptorType */
+		0x00,                              /* bInterfaceNumber */
+		0x00,                              /* bAlternateSetting */
+		0x02,                              /* bNumEndpoints */
+		USB_DEVICE_CLASS_STORAGE,          /* bInterfaceClass */
+		MSC_SUBCLASS_SCSI,                 /* bInterfaceSubClass */
+		MSC_PROTOCOL_BULK_ONLY,            /* bInterfaceProtocol */
+		0x05,                              /* iInterface */
+		
+		/* Bulk In Endpoint */
+		USB_ENDPOINT_DESC_SIZE,            /* bLength */
+		USB_ENDPOINT_DESCRIPTOR_TYPE,      /* bDescriptorType */
+		MSC_EP_IN,                         /* bEndpointAddress */
+		USB_ENDPOINT_TYPE_BULK,            /* bmAttributes */
+		WBVAL(USB_FS_MAX_BULK_PACKET),     /* wMaxPacketSize */
+		0,                                 /* bInterval */
+		
+		/* Bulk Out Endpoint */
+		USB_ENDPOINT_DESC_SIZE,            /* bLength */
+		USB_ENDPOINT_DESCRIPTOR_TYPE,      /* bDescriptorType */
+		MSC_EP_OUT,                        /* bEndpointAddress */
+		USB_ENDPOINT_TYPE_BULK,            /* bmAttributes */
+		WBVAL(USB_FS_MAX_BULK_PACKET),     /* wMaxPacketSize */
+		0,                                 /* bInterval */
+		/* Terminator */
+		0                                  /* bLength */
+	};
+
+	static const uint8_t USB_StringDescriptor[] =
+	{
+		/* Index 0x00: LANGID Codes */
+		0x04,                              /* bLength */
+		USB_STRING_DESCRIPTOR_TYPE,        /* bDescriptorType */
+		WBVAL(0x0409), /* US English */    /* wLANGID */
+		/* Index 0x01: Manufacturer */
+		(18*2 + 2),                        /* bLength (13 Char + Type + lenght) */
+		USB_STRING_DESCRIPTOR_TYPE,        /* bDescriptorType */
+		'N', 0,
+		'X', 0,
+		'P', 0,
+		' ', 0,
+		'S', 0,
+		'e', 0,
+		'm', 0,
+		'i', 0,
+		'c', 0,
+		'o', 0,
+		'n', 0,
+		'd', 0,
+		'u', 0,
+		'c', 0,
+		't', 0,
+		'o', 0,
+		'r', 0,
+		's', 0,
+		/* Index 0x02: Product */
+		(14*2 + 2),                        /* bLength (13 Char + Type + lenght) */
+		USB_STRING_DESCRIPTOR_TYPE,        /* bDescriptorType */
+		'L', 0,
+		'P', 0,
+		'C', 0,
+		'1', 0,
+		'1', 0,
+		'U', 0,
+		'x', 0,
+		'x', 0,
+		'M', 0,
+		'e', 0,
+		'm', 0,
+		'o', 0,
+		'r', 0,
+		'y', 0,
+		/* Index 0x03: Serial Number */
+		(13*2 + 2),                        /* bLength (13 Char + Type + lenght) */
+		USB_STRING_DESCRIPTOR_TYPE,        /* bDescriptorType */
+		'A', 0,
+		'B', 0,
+		'C', 0,
+		'D', 0,
+		'1', 0,
+		'2', 0,
+		'3', 0,
+		'4', 0,
+		'5', 0,
+		'6', 0,
+		'7', 0,
+		'8', 0,
+		'9', 0,
+		/* Index 0x04: Interface 0, Alternate Setting 0 */
+		(3*2 + 2),                        /* bLength (3 Char + Type + lenght) */
+		USB_STRING_DESCRIPTOR_TYPE,       /* bDescriptorType */
+		'D', 0,
+		'F', 0,
+		'U', 0,
+		/* Index 0x05: Interface 1, Alternate Setting 0 */
+		(6*2 + 2),                        /* bLength (13 Char + Type + lenght) */
+		USB_STRING_DESCRIPTOR_TYPE,       /* bDescriptorType */
+		'M', 0,
+		'e', 0,
+		'm', 0,
+		'o', 0,
+		'r', 0,
+		'y', 0,
+	};
+	
+	/* initialize USBD ROM API pointer. */
+	const  USBD_API_T *pUsbApi = (const USBD_API_T *) LPC_ROM_API->usbdApiBase;
+
+	/* enable USB main clock */
+	Chip_Clock_SetUSBClockSource(SYSCTL_USBCLKSRC_PLLOUT, 1);
+	/* Enable AHB clock to the USB block and USB RAM. */
+	Chip_Clock_EnablePeriphClock(SYSCTL_CLOCK_USB);
+	Chip_Clock_EnablePeriphClock(SYSCTL_CLOCK_USBRAM);
+	/* power UP USB Phy */
+	Chip_SYSCTL_PowerUp(SYSCTL_POWERDOWN_USBPAD_PD);
+	
+	/* initialize call back structures */
+	static USBD_API_INIT_PARAM_T usb_param;
+	memset((void *) &usb_param, 0, sizeof(USBD_API_INIT_PARAM_T));
+	usb_param.usb_reg_base = LPC_USB0_BASE;
+	usb_param.mem_base = USB_STACK_MEM_BASE;
+	usb_param.mem_size = USB_STACK_MEM_SIZE;
+	usb_param.max_num_ep = 2;
+
+	/* Set the USB descriptors */
+	static USB_CORE_DESCS_T desc;
+	memset((void*)&desc, 0, sizeof(USB_CORE_DESCS_T));
+	desc.device_desc = (uint8_t *) &USB_DeviceDescriptor[0];
+	desc.string_desc = (uint8_t *) &USB_StringDescriptor[0];
+	desc.high_speed_desc = (uint8_t *)&USB_FsConfigDescriptor[0];
+	desc.full_speed_desc = (uint8_t *)&USB_FsConfigDescriptor[0];
+
+	/* USB Initialization */
+	ErrorCode_t ret = pUsbApi->hw->Init(&g_hUsb, &desc, &usb_param);
+
+	if (ret == LPC_OK) {
+
+		static USBD_MSC_INIT_PARAM_T msc_param;
+		memset(&msc_param, 0, sizeof(USBD_MSC_INIT_PARAM_T));
+
+		msc_param.mem_base = usb_param.mem_base;
+		msc_param.mem_size = usb_param.mem_size;
+
+		static const uint8_t InquiryStr[] = {	'N','X','P',' ',' ',' ',' ',' ',     \
+												'L','P','C',' ','M','e','m',' ',     \
+												'D','i','s','k',' ',' ',' ',' ',     \
+												'1','.','0',' ',};
+
+		msc_param.InquiryStr = (uint8_t*)InquiryStr; 
+		msc_param.BlockCount = Emfat.disk_sectors;
+		msc_param.BlockSize = SECT;
+		msc_param.MemorySize = Emfat.vol_size;
+
+		USB_INTERFACE_DESCRIPTOR* pIntfDesc = (USB_INTERFACE_DESCRIPTOR *)&USB_FsConfigDescriptor[sizeof(USB_CONFIGURATION_DESCRIPTOR)];
+		
+		if ((pIntfDesc == 0) || (pIntfDesc->bInterfaceClass != USB_DEVICE_CLASS_STORAGE) || (pIntfDesc->bInterfaceSubClass != MSC_SUBCLASS_SCSI) ) {
+			return false;
+		}
+
+		msc_param.intf_desc = (uint8_t*)pIntfDesc;
+
+		msc_param.MSC_Write = translate_wr; 
+		msc_param.MSC_Read = translate_rd;
+		msc_param.MSC_Verify = translate_verify;   
+
+		ret = pUsbApi->msc->init(g_hUsb, &msc_param);
+
+		usb_param.mem_base = msc_param.mem_base;
+		usb_param.mem_size = msc_param.mem_size;
+
+		if (ret == LPC_OK) {
+			/*  enable USB interrupts */
+			NVIC_EnableIRQ(USB0_IRQn);
+			/* now connect */
+			pUsbApi->hw->Connect(g_hUsb, 1);
+			return true;
+		}
+	}
+	return false;
+}
+#endif  // #ifdef ENABLE_USB_MSC
 
 int main(void)
 {
@@ -7584,7 +7293,7 @@ int main(void)
 	}
 	
 	settings.Load();
-
+	
 	Random random(0xCAFFE);
 
 	SX1280 sx1280(sdd1306, settings); g_sx1280 = &sx1280;
@@ -7600,38 +7309,26 @@ int main(void)
 #ifdef ENABLE_USB_MSC
 	#define CMA_TIME EMFAT_ENCODE_CMA_TIME(2,4,2017, 13,0,0)
 	#define CMA { CMA_TIME, CMA_TIME, CMA_TIME }
-	emfat_entry_t emfat_entries[] =
+	static emfat_entry_t emfat_entries[] =
 	{
 		// name          dir    lvl offset  size             max_size        user  time  read               write
-		{ "",            true,  0,  0,      0,               0,              0,    CMA,  NULL,              NULL }, // root
-		{ "autorun.inf", false, 1,  0,      AUTORUN_SIZE,    AUTORUN_SIZE,   0,    CMA,  autorun_read_proc, NULL }, // autorun.inf
-		{ "drivers",     true,  1,  0,      0,               0,              0,    CMA,  NULL,              NULL }, // drivers/
-		{ "readme.txt",  false, 2,  0,      README_SIZE,     1024*1024,      0,    CMA,  readme_read_proc,  NULL }, // drivers/readme.txt
-		{ NULL }
+		{ "",            true,  0,  0,      0,               0,              0,    CMA,  NULL,              NULL, { } }, // root
+		{ "autorun.inf", false, 1,  0,      AUTORUN_SIZE,    AUTORUN_SIZE,   0,    CMA,  autorun_read_proc, NULL, { } }, // autorun.inf
+		{ "drivers",     true,  1,  0,      0,               0,              0,    CMA,  NULL,              NULL, { } }, // drivers/
+		{ "readme.txt",  false, 2,  0,      README_SIZE,     1024*1024,      0,    CMA,  readme_read_proc,  NULL, { } }, // drivers/readme.txt
+		{ NULL,			 false,	0,	0,		0,				 0,				 0,	   CMA,	 NULL,				NULL, { } }
 	};
 
-	emfat_t emfat;
-	emfat_init(&emfat, "emfat", emfat_entries);
-	
-	emfat_read(&emfat, (uint8_t *)g_settings, 0, 1);
-	emfat_write(&emfat, (uint8_t *)g_settings, 0, 1);
+	emfat_init(&Emfat, "emfat", emfat_entries);
 	
 	usb_init();
 #endif  // #ifdef ENABLE_USB_MSC
-		
+
 	UI ui(settings, sdd1306, sx1280, random, ft25h16s, bq24295);
 	// For IRQ handlers only
 	g_ui = &ui;
 	ui.Init();
 
-/*	{
-		char str[16];
-		sprintf(str, "%08x", sx1280.GetFirmwareVersion());
-		sdd1306.PlaceAsciiStr(0,0,str);
-		sdd1306.Display();
-		delay(500);
-	}*/
-	
 	// start 1ms timer
 	SysTick_Config(SystemCoreClock / 1000);
 

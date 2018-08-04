@@ -2,7 +2,6 @@
 
 # use the arm cross compiler, not std gcc
 TRGT = /opt/gcc-arm-none-eabi/bin/arm-none-eabi-
-TRGT = arm-none-eabi-
 CC = $(TRGT)gcc
 CXX = $(TRGT)g++
 CP = $(TRGT)objcopy

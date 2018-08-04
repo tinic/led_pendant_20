@@ -70,20 +70,8 @@ extern "C"
 #define USB_STACK_MEM_BASE      0x20004000
 #define USB_STACK_MEM_SIZE      0x0800
 
-/* USB descriptor arrays defined *_desc.c file */
-extern const uint8_t USB_DeviceDescriptor[];
-extern uint8_t USB_FsConfigDescriptor[];
-extern const uint8_t USB_StringDescriptor[];
-extern const uint8_t USB_DeviceQualifier[];
-
-/**
- * @brief	Find the address of interface descriptor for given class type.
- * @param	pDesc		: Pointer to configuration descriptor in which the desired class
- *			interface descriptor to be found.
- * @param	intfClass	: Interface class type to be searched.
- * @return	If found returns the address of requested interface else returns NULL.
- */
-extern USB_INTERFACE_DESCRIPTOR *find_IntfDesc(const uint8_t *pDesc, uint32_t intfClass);
+#define MSC_EP_IN      			0x81
+#define MSC_EP_OUT      		0x01
 
 /**
  * @}
