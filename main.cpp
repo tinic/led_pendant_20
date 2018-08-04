@@ -5479,10 +5479,9 @@ public:
 		sdd1306.PlaceAsciiStr(0,1,str);
 		sdd1306.PlaceAsciiStr(0,2,__TIME__);
 		
-		strcpy(str, "build    ");
-		for (int32_t c=0; build_number[c] != 0x0a && build_number[c] != 0; c++) {
-			str[c+5] = build_number[c];
-		}
+		strcpy(str, "build   ");
+		str[6] = build_number[0];
+		str[7] = build_number[1];
 		sdd1306.PlaceAsciiStr(0,3,str);
 
 		sdd1306.Display();
@@ -6906,7 +6905,10 @@ static SX1280 *g_sx1280 = 0;
 static SDD1306 *g_sdd1306 = 0;
 static EEPROM *g_settings = 0;
 static FT25H16S *g_ft25h16s = 0;
+
+#ifdef ENABLE_USB_MSC
 static USBD_HANDLE_T g_hUsb;
+#endif  // #ifdef ENABLE_USB_MSC
 
 extern "C" {
 	
