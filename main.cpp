@@ -1024,8 +1024,8 @@ public:
 		// CSEL to high
 		Chip_GPIO_SetPinState(LPC_GPIO, (FLASH_CSEL_PIN>>8), (FLASH_CSEL_PIN&0xFF), true);
 	}
-
-	void write_data(uint32_t address, uint8_t *ptr, uint32_t size) {
+	
+	void write_enable() {
 		// MOSI0
 		Chip_IOCON_PinMuxSet(LPC_IOCON, (FLASH_MOSI0_PIN>>8), (FLASH_MOSI0_PIN&0xFF), IOCON_FUNC0);
 
@@ -1035,6 +1035,22 @@ public:
 		Chip_GPIO_SetPinState(LPC_GPIO, (FLASH_HOLD_PIN>>8), (FLASH_HOLD_PIN&0xFF), true);
 
 		push_byte(0x06);
+
+		// CSEL to high
+		Chip_GPIO_SetPinState(LPC_GPIO, (FLASH_CSEL_PIN>>8), (FLASH_CSEL_PIN&0xFF), true);
+	}
+
+	void write_data(uint32_t address, uint8_t *ptr, uint32_t size) {
+		write_enable();
+		
+		// MOSI0
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (FLASH_MOSI0_PIN>>8), (FLASH_MOSI0_PIN&0xFF), IOCON_FUNC0);
+
+		// CSEL to low
+		Chip_GPIO_SetPinState(LPC_GPIO, (FLASH_CSEL_PIN>>8), (FLASH_CSEL_PIN&0xFF), false);
+		// HOLD to high
+		Chip_GPIO_SetPinState(LPC_GPIO, (FLASH_HOLD_PIN>>8), (FLASH_HOLD_PIN&0xFF), true);
+
 		push_byte(0x02);
 		push_byte((address>>16)&0xFF);
 		push_byte((address>> 8)&0xFF);
@@ -1046,9 +1062,51 @@ public:
 
 		// CSEL to high
 		Chip_GPIO_SetPinState(LPC_GPIO, (FLASH_CSEL_PIN>>8), (FLASH_CSEL_PIN&0xFF), true);
+		
+		while (wip()) { };
+	}
+	
+	void chip_erase() {
+		write_enable();
+		
+		// MOSI0
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (FLASH_MOSI0_PIN>>8), (FLASH_MOSI0_PIN&0xFF), IOCON_FUNC0);
+
+		// CSEL to low
+		Chip_GPIO_SetPinState(LPC_GPIO, (FLASH_CSEL_PIN>>8), (FLASH_CSEL_PIN&0xFF), false);
+		// HOLD to high
+		Chip_GPIO_SetPinState(LPC_GPIO, (FLASH_HOLD_PIN>>8), (FLASH_HOLD_PIN&0xFF), true);
+
+		push_byte(0x60);
+
+		// CSEL to high
+		Chip_GPIO_SetPinState(LPC_GPIO, (FLASH_CSEL_PIN>>8), (FLASH_CSEL_PIN&0xFF), true);
+		
+		while (wip()) { };
 	}
 
 private:
+
+	bool wip() {
+		// MOSI0
+		Chip_IOCON_PinMuxSet(LPC_IOCON, (FLASH_MOSI0_PIN>>8), (FLASH_MOSI0_PIN&0xFF), IOCON_FUNC0);
+
+		// HOLD to high
+		Chip_GPIO_SetPinState(LPC_GPIO, (FLASH_HOLD_PIN>>8), (FLASH_HOLD_PIN&0xFF), true);
+		// CSEL to low
+		Chip_GPIO_SetPinState(LPC_GPIO, (FLASH_CSEL_PIN>>8), (FLASH_CSEL_PIN&0xFF), false);
+
+		push_byte(0x05);
+		bool in_wip = (read_byte() & 1) ? true : false; 
+		
+		// CSEL to high
+		Chip_GPIO_SetPinState(LPC_GPIO, (FLASH_CSEL_PIN>>8), (FLASH_CSEL_PIN&0xFF), true);
+
+        Chip_WWDT_Feed(LPC_WWDT);
+
+		return in_wip;
+	}
+	
 
 	void push_byte(uint32_t byte) {
 		spiwrite(byte);
@@ -1112,6 +1170,14 @@ public:
 		
 		if (deep) {
 			memset(this, 0, sizeof(EEPROM));
+
+			recv_message_count = 0;
+			sent_message_count = 0;
+			program_change_count = 0;
+			brightness_change_count = 0;
+			total_runtime = 0;
+			recv_buffer_ptr = 0;
+			recv_flash_ptr = 0;
 		}
 
 		bird_color_index = 0;
@@ -1224,6 +1290,38 @@ public:
 		}
 	}
 	
+	#define BLOCK_SIZE 256
+	#define MSG_SIZE 32
+	
+	void RecordMessage(FT25H16S &ft25h16s, const uint8_t *msg) {
+		memcpy(&recv_buffer[recv_buffer_ptr], msg, 24);
+		recv_buffer_ptr += 32;
+		if (recv_buffer_ptr >= 0x100) {
+			// Spill into flash
+			ft25h16s.write_data(recv_flash_ptr, recv_buffer, 256);
+			recv_buffer_ptr = 0;
+			recv_flash_ptr += BLOCK_SIZE;
+		}
+		Save();
+	}
+	
+	int32_t GetMessageCount() {
+		return (recv_buffer_ptr / MSG_SIZE) + (recv_flash_ptr / MSG_SIZE);
+	}
+	
+	bool GetMessage(FT25H16S &ft25h16s, int32_t msg_num, uint8_t *msg) {
+		if (msg_num >= GetMessageCount()) {
+			return false;
+		}
+		if ( msg_num < int32_t(recv_buffer_ptr / MSG_SIZE) ) {
+			memcpy(msg, &recv_buffer[recv_buffer_ptr - ( ( msg_num + 1 ) * MSG_SIZE)], MSG_SIZE);
+		} else {
+			msg_num -= int32_t(recv_buffer_ptr / MSG_SIZE);
+			ft25h16s.read_data(recv_flash_ptr - ( ( msg_num + 1 ) * MSG_SIZE), msg, MSG_SIZE);
+		}
+		return true;
+	}
+	
 	uint32_t program_count;
 	uint32_t program_curr;
 	uint32_t runtime_time_count;
@@ -1250,6 +1348,11 @@ public:
 	uint32_t program_change_count;
 	uint32_t brightness_change_count;
 	uint64_t total_runtime;
+	
+	uint32_t recv_buffer_ptr;
+	uint8_t  recv_buffer[256];
+	uint32_t recv_flash_ptr;
+
 };
 
 bool EEPROM::loaded = 0;
@@ -1795,7 +1898,12 @@ class SDD1306 {
 				size_t len = strlen(str);
 				if (x+len > 8) len = 7-x;
 				for (size_t c=0; c<len; c++) {
-					text_buffer_cache[y*8+x+c] = uint8_t(str[c]) - 0x20;
+					uint8_t ch = uint8_t(str[c]);
+					if ((ch < 0x20) || (ch >= 0x7D)) {
+						text_buffer_cache[y*8+x+c] = 0;
+					} else {
+						text_buffer_cache[y*8+x+c] = uint8_t(str[c]) - 0x20;
+					}
 				}
 			}
 
@@ -2871,10 +2979,12 @@ class SX1280 {
 			
 			SDD1306 &sdd1306;
 			EEPROM &settings;
+			FT25H16S &ft25h16s;
 
-			SX1280(SDD1306 &_sdd1306, EEPROM &_settings):
+			SX1280(SDD1306 &_sdd1306, EEPROM &_settings, FT25H16S &_ft25h16s):
 				sdd1306(_sdd1306),
-				settings(_settings) { 
+				settings(_settings),
+				ft25h16s(_ft25h16s) { 
 			}
 			
 			void Init(bool pollMode) {
@@ -4127,6 +4237,7 @@ class SX1280 {
 					if (settings.radio_enabled) {
 						settings.recv_radio_message_pending = true;
 						settings.UpdateRecvCount();
+						settings.RecordMessage(ft25h16s, rxBuffer);
 					}
 				}
 			}
@@ -4179,6 +4290,7 @@ class SX1280 {
 				memcpy(txBuffer,buf,24);
 				SendBuffer();
 				settings.UpdateSentCount();
+				settings.RecordMessage(ft25h16s, txBuffer);
 			}
 			
 	private:
@@ -4267,6 +4379,9 @@ class UI {
 
 	int32_t stats_select_current;
 	int32_t stats_menu_selection;
+
+	int32_t history_select_current;
+	int32_t history_menu_selection;
 	
 public:
 
@@ -4300,8 +4415,8 @@ public:
 		bottom_short_press = false;
 		
 		menu_scroll = 0;
-		max_menu = 6;
-		max_menu_scroll = 3;
+		max_menu = 7;
+		max_menu_scroll = 4;
 		menu_selection = 0;
 		
 		ring_or_duck = false;
@@ -4323,6 +4438,9 @@ public:
 		
 		stats_select_current = 0;
 		stats_menu_selection = 0;
+
+		history_select_current = 0;
+		history_menu_selection = 0;
 
 		Chip_IOCON_PinMuxSet(LPC_IOCON, uint8_t(PRIMARY_BUTTON>>8), uint8_t(PRIMARY_BUTTON&0xFF), IOCON_FUNC0 | IOCON_MODE_PULLUP);
 		Chip_GPIO_SetPinDIRInput(LPC_GPIO, uint8_t(PRIMARY_BUTTON>>8), uint8_t(PRIMARY_BUTTON&0xFF));
@@ -4414,6 +4532,9 @@ public:
 				case	9: {
 					StatsHandler(true, false);
 				} break;
+				case	10: {
+					HistoryHandler(true, false);
+				} break;
 			}
 		}
 	}
@@ -4439,15 +4560,43 @@ public:
 	
 	void BottomLongPress() {
 		uint32_t timer_ms = Chip_TIMER_ReadCount(LPC_TIMER32_0);
-		if (Mode() == 2 && menu_selection == 4) {
+		if (Mode() == 2 && menu_selection == 5) {
 			if ( bottom_button_down && (timer_ms - bottom_fall_time) > 5000) {
 				sdd1306.PlaceAsciiStr(0,0,"        ");
 				sdd1306.PlaceAsciiStr(0,1,"  HARD  ");
 				sdd1306.PlaceAsciiStr(0,2," RESET! ");
-				sdd1306.PlaceAsciiStr(0,3,"        ");
+				sdd1306.PlaceAsciiStr(0,3,"[00/04] ");
 				sdd1306.Display();
-				delay(1000);
+
+				Chip_WWDT_SetTimeOut(LPC_WWDT, 60 * Chip_Clock_GetWDTOSCRate() / 4);
+				NVIC_DisableIRQ(I2C0_IRQn);
+				NVIC_DisableIRQ(WDT_IRQn);
+				NVIC_DisableIRQ(PIN_INT0_IRQn);  
+				NVIC_DisableIRQ(PIN_INT1_IRQn);  
+				NVIC_DisableIRQ(PIN_INT2_IRQn);  
+
+				sdd1306.PlaceAsciiStr(0,3,"[01/04] ");
+				sdd1306.Display();
+
 				settings.Reset(true);
+
+				sdd1306.PlaceAsciiStr(0,3,"[02/04] ");
+				sdd1306.Display();
+				
+				ft25h16s.chip_erase();
+
+				sdd1306.PlaceAsciiStr(0,3,"[03/04] ");
+				sdd1306.Display();
+
+				EEPROM::loaded = false;
+				
+				delay(500);
+
+				sdd1306.PlaceAsciiStr(0,3,"[04/04] ");
+				sdd1306.Display();
+
+				delay(500);
+
 				NVIC_SystemReset();
 				bottom_button_down = false;
 			}
@@ -4494,6 +4643,9 @@ public:
 				} break;
 				case	9: {
 					StatsHandler(false, true);
+				} break;
+				case	10: {
+					HistoryHandler(false, true);
 				} break;
 			}
 		}
@@ -4767,10 +4919,11 @@ public:
 		const char *menu[] = {
 			"1COLORS ",
 			"2RADIO  ",
-			"3STATS  ",
-			"4RESET  ",
-			"5TEST   ",
-			"6VERSION",
+			"3HISTORY",
+			"4STATS  ",
+			"5RESET  ",
+			"6TEST   ",
+			"7VERSION",
 		};
 		for (int32_t c=0; c<3; c++) {
 			sdd1306.PlaceAsciiStr(0,c+1,menu[c+menu_scroll]);
@@ -4817,18 +4970,25 @@ public:
 				case	3: {
 							menu_scroll = 0;
 							menu_selection = 0;
-							SetMode(system_clock_ms, 9);
+							SetMode(system_clock_ms, 10);
 							return;
 						} break;
 				case	4: {
-							settings.Reset(false);
-							NVIC_SystemReset();
+							menu_scroll = 0;
+							menu_selection = 0;
+							SetMode(system_clock_ms, 9);
+							return;
 						} break;
 				case	5: {
+							settings.Reset(false);
+							EEPROM::loaded = false;
+							NVIC_SystemReset();
+						} break;
+				case	6: {
 							sdd1306.ClearAttr();
 							DisplayTest();
 						} break;
-				case	6: {
+				case	7: {
 							sdd1306.ClearAttr();
 							DisplayVersion();
 						} break;
@@ -5243,6 +5403,7 @@ public:
 				case	0: {
 							radio_name_selection = 0;
 							SetMode(system_clock_ms, 0);
+							sdd1306.ClearAttr();
 							settings.Save();
 							return;
 						} break;
@@ -5313,6 +5474,7 @@ public:
 			switch (radio_message_selection) { 
 				case	0: {
 							radio_message_selection = 0;
+							radio_message_current = 0;
 							SetMode(system_clock_ms, 0);
 							settings.Save();
 							return;
@@ -5510,31 +5672,51 @@ public:
 		switch(stats_select_current) {
 			case	0: {
 						sdd1306.PlaceAsciiStr(0,2,"PRG CHNG");
-						sprintf(str,"%08d",settings.program_change_count);
-						sdd1306.PlaceAsciiStr(0,3,str);
+						if (settings.program_change_count > 99999999) {
+							sdd1306.PlaceAsciiStr(0,3,"99999999");
+						} else {
+							sprintf(str,"%08d",settings.program_change_count);
+							sdd1306.PlaceAsciiStr(0,3,str);
+						}
 					} break;
 			case	1: {
 						sdd1306.PlaceAsciiStr(0,2,"BRT CHNG");
-						sprintf(str,"%08d",settings.brightness_change_count);
-						sdd1306.PlaceAsciiStr(0,3,str);
+						if (settings.brightness_change_count > 99999999) {
+							sdd1306.PlaceAsciiStr(0,3,"99999999");
+						} else {
+							sprintf(str,"%08d",settings.brightness_change_count);
+							sdd1306.PlaceAsciiStr(0,3,str);
+						}
 					} break;
 			case	2: {
 						sdd1306.PlaceAsciiStr(0,2,"RECV MSG");
-						sprintf(str,"%08d",settings.recv_message_count);
-						sdd1306.PlaceAsciiStr(0,3,str);
+						if (settings.recv_message_count > 99999999) {
+							sdd1306.PlaceAsciiStr(0,3,"99999999");
+						} else {
+							sprintf(str,"%08d",settings.recv_message_count);
+							sdd1306.PlaceAsciiStr(0,3,str);
+						}
 					} break;
 			case	3: {
 						sdd1306.PlaceAsciiStr(0,2,"SENT MSG");
-						sprintf(str,"%08d",settings.sent_message_count);
-						sdd1306.PlaceAsciiStr(0,3,str);
+						if (settings.sent_message_count > 99999999) {
+							sdd1306.PlaceAsciiStr(0,3,"99999999");
+						} else {
+							sprintf(str,"%08d",settings.sent_message_count);
+							sdd1306.PlaceAsciiStr(0,3,str);
+						}
 					} break;
 			case	4: {
 						sdd1306.PlaceAsciiStr(0,2,"TIME ON ");
 						uint32_t hours = settings.total_runtime / 1000 / 60 / 60;
 						uint32_t minutes = (settings.total_runtime / 1000 / 60) % 60;
 						uint32_t seconds = (settings.total_runtime / 1000) % 60;
-						sprintf(str,"%02d:%02d:%02d",hours, minutes, seconds);
-						sdd1306.PlaceAsciiStr(0,3,str);
+						if (hours > 99) {
+							sdd1306.PlaceAsciiStr(0,3,"99:99:99");
+						} else {
+							sprintf(str,"%02d:%02d:%02d",hours, minutes, seconds);
+							sdd1306.PlaceAsciiStr(0,3,str);
+						}
 					} break;
 		}
 		sdd1306.Display();
@@ -5551,6 +5733,8 @@ public:
 			switch (stats_menu_selection) { 
 				case	0: {
 							stats_select_current = 0;
+							stats_menu_selection = 0;
+							sdd1306.ClearAttr();
 							SetMode(system_clock_ms, 0);
 							settings.Save();
 							return;
@@ -5566,6 +5750,77 @@ public:
 		DisplayStats();
 	}
 	
+	void DisplayHistory() {
+		if ( history_menu_selection == 0 ) {
+			sdd1306.SetAttr(0,0,1);
+		} else {
+			sdd1306.SetAttr(0,0,0);
+		}
+
+		if ( history_menu_selection == 1 ) {
+			sdd1306.SetAttr(0,1,1);
+		} else {
+			sdd1306.SetAttr(0,1,0);
+		}
+		
+		sdd1306.PlaceCustomChar(0,0,0x7B);
+		sdd1306.PlaceCustomChar(1,0,0x1CE);
+		sdd1306.PlaceCustomChar(2,0,0x1CF);
+		sdd1306.PlaceCustomChar(3,0,0x1D0);
+		sdd1306.PlaceCustomChar(4,0,0x1D1);
+		sdd1306.PlaceCustomChar(5,0,0x1D2);
+		sdd1306.PlaceCustomChar(6,0,0x1D3);
+		sdd1306.PlaceCustomChar(7,0,0x1D4);
+
+		sdd1306.PlaceCustomChar(0,1,0x191);
+		char str[9];
+		sprintf(str,"%03d/%03d", history_select_current, settings.GetMessageCount());
+		sdd1306.PlaceAsciiStr(1,1,str);
+		
+		uint8_t msg[32];
+		if (settings.GetMessage(ft25h16s, history_select_current, &msg[0])) {
+			settings.recv_radio_color = msg[7];
+			memset(str,0,9);
+			strncpy(str,(const char *)&msg[8],8);
+			sdd1306.PlaceAsciiStr(0,2,str);
+			memset(str,0,9);
+			strncpy(str,(const char *)&msg[16],8);
+			sdd1306.PlaceAsciiStr(0,3,str);
+		} else {
+			sdd1306.PlaceAsciiStr(0,2,"        ");
+			sdd1306.PlaceAsciiStr(0,3,"        ");
+		}
+		sdd1306.Display();
+	}
+
+	void HistoryHandler(bool top_pressed, bool bottom_pressed) {
+		if (top_pressed && settings.GetMessageCount()) {
+			history_menu_selection ++;
+			if (history_menu_selection >= 2) {
+				history_menu_selection = 0;
+			}
+		}
+		if (bottom_pressed) {
+			switch (history_menu_selection) { 
+				case	0: {
+							history_select_current = 0;
+							history_menu_selection = 0;
+							sdd1306.ClearAttr();
+							SetMode(system_clock_ms, 0);
+							settings.Save();
+							return;
+						} break;
+				case	1: {
+							history_select_current ++;
+							if (history_select_current >= settings.GetMessageCount()) {
+								history_select_current = 0;
+							}
+						} break;
+			}
+		}
+		DisplayHistory();
+	}
+
 	void Display() {
 		switch (mode) {
 			case	0:
@@ -5604,6 +5859,9 @@ public:
 					break;
 			case	9:
 					DisplayStats();
+					break;
+			case	10:
+					DisplayHistory();
 					break;
 		}
 	}
@@ -5648,8 +5906,7 @@ public:
 				past_post_time = false;
 				if (ui.Mode() == 6) {
 					message_ring();
-				} else if ( ui.Mode() == 3 ||
-							ui.Mode() == 5) {
+				} else if ( ui.Mode() == 3 || ui.Mode() == 5 || ui.Mode() == 10) {
 					color_ring();
 				} else switch(settings.program_curr) {
 					case	0:
@@ -5792,9 +6049,11 @@ private:
 		int32_t switch_dir = 4;
 		for (; ;) {
 			for (uint32_t d = 0; d < 8; d++) {
-				leds.set_ring(d, ((rgba(radio_colors[settings.recv_radio_color]).r())*rgb_walk)/256,
-						 		 ((rgba(radio_colors[settings.recv_radio_color]).g())*rgb_walk)/256,
-						 		 ((rgba(radio_colors[settings.recv_radio_color]).b())*rgb_walk)/256);
+				if (settings.recv_radio_color <= 10) {
+					leds.set_ring(d, ((rgba(radio_colors[settings.recv_radio_color]).r())*rgb_walk)/256,
+									 ((rgba(radio_colors[settings.recv_radio_color]).g())*rgb_walk)/256,
+									 ((rgba(radio_colors[settings.recv_radio_color]).b())*rgb_walk)/256);
+				}
 			}
 
 			for (uint32_t d = 0; d < 4; d++) {
@@ -5816,10 +6075,16 @@ private:
 			}
 		}
 	}
-	
+
 	void color_ring() {
 		for (;;) {
-			if (ui.Mode() == 5) {
+			if (ui.Mode() == 10) {
+				for (uint32_t d = 0; d < 8; d++) {
+					if (settings.recv_radio_color <= 10) {
+						leds.set_ring(d, rgba(radio_colors[settings.recv_radio_color]));
+					}
+				}
+			} else if (ui.Mode() == 5 ) {
 				for (uint32_t d = 0; d < 8; d++) {
 					leds.set_ring(d, rgba(radio_colors[settings.radio_color]));
 				}
@@ -7004,7 +7269,7 @@ extern "C" {
 
 		g_spi->push_frame(*g_leds, g_settings->brightness);
 
-		if ( (system_clock_ms % (1024*32)) == 0) {
+		if ( (system_clock_ms % (1024*256)) == 0) {
 			if (g_ui->Mode() == 0) {
 				g_ui->SetMode(system_clock_ms, 1);
 			}
@@ -7385,16 +7650,16 @@ int main(void)
 	settings.Load();
 	
 	Random random(0xCAFFE);
+	
+	FT25H16S ft25h16s; g_ft25h16s = &ft25h16s;
 
-	SX1280 sx1280(sdd1306, settings); g_sx1280 = &sx1280;
+	SX1280 sx1280(sdd1306, settings, ft25h16s); g_sx1280 = &sx1280;
 	sx1280.Init(false);
 
 	if (bq24295.DevicePresent()) {
 		bq24295.SetBoostVoltage(4550);
 		bq24295.DisableWatchdog();
 	}
-	
-	FT25H16S ft25h16s; g_ft25h16s = &ft25h16s;
 
 #ifdef ENABLE_USB_MSC
 	#define CMA_TIME EMFAT_ENCODE_CMA_TIME(2,4,2017, 13,0,0)
