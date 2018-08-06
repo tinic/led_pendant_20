@@ -1809,6 +1809,14 @@ class BQ24295 {
 				return 0;
 			}
 			
+			uint8_t GetStatus() {
+				I2C_Guard guard;
+				if (guard.Check()) {
+					return 0;
+				}
+				return getRegister(0x08);
+			}
+			
 			uint8_t FaultState() {
 				return fault_state;
 			}
@@ -4929,7 +4937,7 @@ public:
 		}
 	}
 	
-	uint8_t NormBatteryChargeForBar() {
+	uint8_t BadConnection() {
 		static int32_t avg_buf[16];
 		static int32_t avg_pos = 0;
 
@@ -4945,7 +4953,7 @@ public:
 			avg += avg_buf[c];
 		}
 		
-		int32_t charge = ((((avg / 16) - 3000) * 255 ) / (4200 - 3000));
+		int32_t charge = ((((avg / 16) - 1500) * 255 ) / (4200 - 1500));
 		if (charge < 0) charge = 0;
 		if (charge >= 256 ) charge = 255;
 		return charge;
@@ -4962,12 +4970,26 @@ public:
 		sdd1306.PlaceCustomChar(7,0,0xA0+(system_clock_ms/0x400)%8);
 		sdd1306.PlaceCustomChar(0,1,0x65);
 		DisplayBar(1,1,7,uint8_t(settings.brightness), 0);
-		sdd1306.PlaceCustomChar(0,2,0x66);
-		DisplayBar(1,2,7,(NormBatteryChargeForBar() * 14 / 255), 1);
-		sdd1306.PlaceCustomChar(0,3,0x67);
+		sdd1306.PlaceCustomChar(0,2,0x67);
 		char str[9];
 		sprintf(str,"[%02d/%02d]",settings.program_curr,settings.program_count);
-		sdd1306.PlaceAsciiStr(1,3,str);
+		sdd1306.PlaceAsciiStr(1,2,str);
+
+
+		sdd1306.PlaceCustomChar(0,3,0x66);
+		uint8_t bat_stat = bq24295.GetStatus();
+		if (BadConnection()) {
+			sdd1306.PlaceAsciiStr(1,3,"BATERR!");
+		} else {
+			sdd1306.PlaceCustomChar(1,3,(bat_stat & 0x01) ? 0x289 : 0x288);
+			sdd1306.PlaceCustomChar(2,3,(bat_stat & 0x02) ? 0x289 : 0x288);
+			sdd1306.PlaceCustomChar(3,3,(bat_stat & 0x08) ? 0x289 : 0x288);
+			sdd1306.PlaceCustomChar(4,3,(bat_stat & 0x10) ? 0x289 : 0x288);
+			sdd1306.PlaceCustomChar(5,3,(bat_stat & 0x20) ? 0x289 : 0x288);
+			sdd1306.PlaceCustomChar(6,3,(bat_stat & 0x40) ? 0x289 : 0x288);
+			sdd1306.PlaceCustomChar(7,3,(bat_stat & 0x80) ? 0x289 : 0x288);
+		}
+
 		sdd1306.Display();
 	}
 	
