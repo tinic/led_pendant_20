@@ -1868,6 +1868,8 @@ class SDD1306 {
 
 			SDD1306() {
 				devicePresent = false;
+				display_scroll_message = false;
+				scroll_message_offset = 0;
 			}
 			
 			void Clear() {
@@ -1922,6 +1924,25 @@ class SDD1306 {
 				if (y>3 || x>7) return;
 				text_attr_cache[y*8+x] = attr;
 			}
+			
+			void SetAsciiScrollMessage(const char *str, int32_t offset) {
+				if (str) {
+					size_t len = min(strlen(str), size_t(8));
+					memset(scroll_message, 0, 9);
+					for (int32_t c=0; c<len; c++) {
+						uint8_t ch = uint8_t(str[c]);
+						if ((ch < 0x20) || (ch >= 0x7D)) {
+							scroll_message[c] = 0x20;
+						} else {
+							scroll_message[c] = ch - 0x20;
+						}
+					}
+					display_scroll_message = true;
+					scroll_message_offset = offset;
+				} else {
+					display_scroll_message = false;
+				}
+			}
 
 			void Display() {
 				bool display_center_flip = false;
@@ -1930,13 +1951,56 @@ class SDD1306 {
 					display_center_flip = true;
 				}
 				for (uint32_t y=0; y<4; y++) {
-					for (uint32_t x=0; x<8; x++) {
-						if (text_buffer_cache[y*8+x] != text_buffer_screen[y*8+x] ||
-						    text_attr_cache[y*8+x] != text_attr_screen[y*8+x]) {
-							text_buffer_screen[y*8+x] = text_buffer_cache[y*8+x];
-							text_attr_screen[y*8+x] = text_attr_cache[y*8+x];
-							if (!display_center_flip) {
-								DisplayChar(x,y,text_buffer_screen[y*8+x],text_attr_screen[y*8+x]);
+					if (display_scroll_message && y < 2) {
+						I2C_Guard guard;
+						if (guard.Check()) {
+							return;
+						}
+						
+						{
+							WriteCommand(0xB0+0);
+							int32_t x=32;
+							WriteCommand(0x0f&(x   )); // 0x20 offset
+							WriteCommand(0x10|(x>>4)); // 0x20 offset
+						}
+
+						uint8_t buf[65];
+						buf[0] = 0x40;
+						
+						// write first line
+						for (int32_t x = 0; x < 64; x++) {
+							int32_t rx = (scroll_message_offset + x ) % (9 * 16) ;
+							int32_t cx = rx >> 4;
+							buf[x+1] = duck_font_raw[0x1000 + scroll_message[cx] * 16 + (rx & 0x0F)];
+						}
+
+						Chip_I2C_MasterSend(I2C0, i2caddr, buf, 0x41);
+						
+						{
+							WriteCommand(0xB0+1);
+							int32_t x=32;
+							WriteCommand(0x0f&(x   )); // 0x20 offset
+							WriteCommand(0x10|(x>>4)); // 0x20 offset
+						}
+
+						// write first line
+						for (int32_t x = 0; x < 64; x++) {
+							int32_t rx = (scroll_message_offset + x ) % (9 * 16) ;
+							int32_t cx = rx >> 4;
+							buf[x+1] = duck_font_raw[0x1800 + scroll_message[cx] * 16 + (rx & 0x0F)];
+						}
+						
+						Chip_I2C_MasterSend(I2C0, i2caddr, buf, 0x41);
+						
+					} else {
+						for (uint32_t x=0; x<8; x++) {
+							if (text_buffer_cache[y*8+x] != text_buffer_screen[y*8+x] ||
+								text_attr_cache[y*8+x] != text_attr_screen[y*8+x]) {
+								text_buffer_screen[y*8+x] = text_buffer_cache[y*8+x];
+								text_attr_screen[y*8+x] = text_attr_cache[y*8+x];
+								if (!display_center_flip) {
+									DisplayChar(x,y,text_buffer_screen[y*8+x],text_attr_screen[y*8+x]);
+								}
 							}
 						}
 					}
@@ -1944,6 +2008,7 @@ class SDD1306 {
 				if (display_center_flip) {
 					DisplayCenterFlip();
 				}
+				Chip_WWDT_Feed(LPC_WWDT);
 			}
 			
 			void SetVerticalShift(int8_t val) {
@@ -2078,7 +2143,7 @@ class SDD1306 {
 					Chip_I2C_MasterSend(I2C0, i2caddr, buf, 0x41);
 				} 
 			}
-
+			
 			void DisplayChar(uint32_t x, uint32_t y, uint16_t ch, uint8_t attr) {
 				I2C_Guard guard;
 				if (guard.Check()) {
@@ -2161,6 +2226,10 @@ class SDD1306 {
 			uint16_t text_buffer_screen[8*4];
 			uint8_t text_attr_cache[8*4];
 			uint8_t text_attr_screen[8*4];
+			
+			bool display_scroll_message;
+			uint8_t scroll_message[9];
+			int32_t scroll_message_offset;
 };  // class SDD1306
 
 class Setup {
@@ -4876,7 +4945,7 @@ public:
 			avg += avg_buf[c];
 		}
 		
-		int32_t charge = ((((avg / 16) - 2800) * 255 ) / (4200 - 2800));
+		int32_t charge = ((((avg / 16) - 3000) * 255 ) / (4200 - 3000));
 		if (charge < 0) charge = 0;
 		if (charge >= 256 ) charge = 255;
 		return charge;
@@ -5303,19 +5372,23 @@ public:
 	}
 
 	void DisplayMessage() {
+		static int32_t scroll_x = 0;
 		if ((system_clock_ms - mode_start_time) < 50) {
 			for (int32_t c=0; c<8; c++) {
 				sdd1306.PlaceCustomChar(c,0,0x181+c);
 			}
+
+			for (int32_t c=0; c<8; c++) {
+				sdd1306.PlaceCustomChar(c,2,0x280+c);
+			}
+			
 			char str[9];
 			memset(str,0,9);
-			memcpy(str,settings.recv_radio_message,8);
-			sdd1306.PlaceAsciiStr(0,1,str);
 			memcpy(str,settings.recv_radio_name,8);
-			sdd1306.PlaceAsciiStr(0,2,str);
-			for (int32_t c=0; c<8; c++) {
-				sdd1306.PlaceCustomChar(c,3,0x189+c);
-			}
+			sdd1306.PlaceAsciiStr(0,3,str);
+
+			sdd1306.SetAsciiScrollMessage(settings.recv_radio_message, scroll_x++);
+
 			sdd1306.SetVerticalShift(0);
 		}
 		else if ((system_clock_ms - mode_start_time) < 50 + 640 + 50) {
@@ -5332,10 +5405,15 @@ public:
 			};
 			uint32_t y = ltime/10;
 			if (y >= 64) y = 63;
+
+			sdd1306.SetAsciiScrollMessage(settings.recv_radio_message, scroll_x++);
+
 			sdd1306.Display();
 			sdd1306.SetVerticalShift(bounce[y]);
 		}
 		else if ((system_clock_ms - mode_start_time) < 5000 + 50 + 640 + 50) {
+			sdd1306.SetAsciiScrollMessage(settings.recv_radio_message, scroll_x++);
+			sdd1306.Display();
 		}
 		else if ((system_clock_ms - mode_start_time) < 160 + 5000 + 50 + 640 + 50) {
 			uint32_t ltime = (system_clock_ms - mode_start_time) - (5000 + 50 + 640 + 50);
@@ -5350,6 +5428,7 @@ public:
 			sdd1306.SetCenterFlip(ltime/5);
 			sdd1306.Display();
 		} else {
+			sdd1306.SetAsciiScrollMessage(0, 0);
 			mode = previous_mode;
 			sdd1306.ClearAttr();
 			DisplayStatus();
@@ -7287,9 +7366,17 @@ extern "C" {
 			g_settings->SaveRuntime();
 		}
 		
-		if ( (system_clock_ms % (1024*32)) == 0) {
-			//g_sx1280->SendMessage();
+#if 0
+		if ( (system_clock_ms % (1024*8)) == 0) {
+			g_settings->radio_color ++;
+			g_settings->radio_color %= 11;
+			static int32_t msg_index = 0;
+			char str[8];
+			sprintf(str,"%08d",msg_index++);
+			memcpy(g_settings->radio_messages[g_settings->radio_message],str,8);
+			g_sx1280->SendMessage();
 		}
+#endif  // #if 0
 		
 		g_effects->CheckPostTime();
 	}
