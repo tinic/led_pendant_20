@@ -4976,7 +4976,7 @@ public:
 		DisplayBar(1,1,7,uint8_t(settings.brightness), 0);
 		sdd1306.PlaceCustomChar(0,2,0x67);
 		char str[9];
-		sprintf(str,"[%02d/%02d]",settings.program_curr,settings.program_count);
+		sprintf(str,"[%02d/%02d]",settings.program_curr + 1,settings.program_count);
 		sdd1306.PlaceAsciiStr(1,2,str);
 
 
@@ -5353,11 +5353,11 @@ public:
 		}
 
 		sdd1306.PlaceCustomChar(0,2,0x191);
-		sprintf(str,"[%02d/%02d]",settings.radio_message,8);
+		sprintf(str,"[%02d/%02d]",settings.radio_message + 1,8);
 		sdd1306.PlaceAsciiStr(1,2,str);
 
 		sdd1306.PlaceCustomChar(0,3,0x192);
-		sprintf(str,"[%02d/%02d]",settings.radio_color,11);
+		sprintf(str,"[%02d/%02d]",settings.radio_color + 1,11);
 		sdd1306.PlaceAsciiStr(1,3,str);
 
 		sdd1306.Display();
@@ -5552,7 +5552,7 @@ public:
 		
 		char str[9];
 		sdd1306.PlaceCustomChar(0,1,0x191);
-		sprintf(str,"[%02d/%02d]",radio_message_current,8);
+		sprintf(str,"[%02d/%02d]",radio_message_current + 1,8);
 		sdd1306.PlaceAsciiStr(1,1,str);
 		
 		memset(str,0,sizeof(str));
@@ -5771,7 +5771,7 @@ public:
 		
 		char str[9];
 		sdd1306.PlaceCustomChar(0,1,0x67);
-		sprintf(str,"[%02d/%02d]",stats_select_current,8);
+		sprintf(str,"[%02d/%02d]",stats_select_current + 1,8);
 		sdd1306.PlaceAsciiStr(1,1,str);
 
 		switch(stats_select_current) {
@@ -5879,7 +5879,7 @@ public:
 
 		sdd1306.PlaceCustomChar(0,1,0x191);
 		char str[9];
-		sprintf(str,"%03d/%03d", history_select_current, settings.GetMessageCount());
+		sprintf(str,"%03d/%03d", history_select_current + 1, settings.GetMessageCount());
 		sdd1306.PlaceAsciiStr(1,1,str);
 		
 		uint8_t msg[32];
