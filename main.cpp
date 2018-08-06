@@ -870,87 +870,6 @@ static const uint8_t rev_bits[] =
   0x0F, 0x8F, 0x4F, 0xCF, 0x2F, 0xAF, 0x6F, 0xEF, 0x1F, 0x9F, 0x5F, 0xDF, 0x3F, 0xBF, 0x7F, 0xFF
 };
 
-static const uint8_t sine_wave[256] = {
-	0x80, 0x83, 0x86, 0x89, 0x8C, 0x90, 0x93, 0x96,
-	0x99, 0x9C, 0x9F, 0xA2, 0xA5, 0xA8, 0xAB, 0xAE,
-	0xB1, 0xB3, 0xB6, 0xB9, 0xBC, 0xBF, 0xC1, 0xC4,
-	0xC7, 0xC9, 0xCC, 0xCE, 0xD1, 0xD3, 0xD5, 0xD8,
-	0xDA, 0xDC, 0xDE, 0xE0, 0xE2, 0xE4, 0xE6, 0xE8,
-	0xEA, 0xEB, 0xED, 0xEF, 0xF0, 0xF1, 0xF3, 0xF4,
-	0xF5, 0xF6, 0xF8, 0xF9, 0xFA, 0xFA, 0xFB, 0xFC,
-	0xFD, 0xFD, 0xFE, 0xFE, 0xFE, 0xFF, 0xFF, 0xFF,
-	0xFF, 0xFF, 0xFF, 0xFF, 0xFE, 0xFE, 0xFE, 0xFD,
-	0xFD, 0xFC, 0xFB, 0xFA, 0xFA, 0xF9, 0xF8, 0xF6,
-	0xF5, 0xF4, 0xF3, 0xF1, 0xF0, 0xEF, 0xED, 0xEB,
-	0xEA, 0xE8, 0xE6, 0xE4, 0xE2, 0xE0, 0xDE, 0xDC, 
-	0xDA, 0xD8, 0xD5, 0xD3, 0xD1, 0xCE, 0xCC, 0xC9,
-	0xC7, 0xC4, 0xC1, 0xBF, 0xBC, 0xB9, 0xB6, 0xB3,
-	0xB1, 0xAE, 0xAB, 0xA8, 0xA5, 0xA2, 0x9F, 0x9C,
-	0x99, 0x96, 0x93, 0x90, 0x8C, 0x89, 0x86, 0x83,
-	0x80, 0x7D, 0x7A, 0x77, 0x74, 0x70, 0x6D, 0x6A,
-	0x67, 0x64, 0x61, 0x5E, 0x5B, 0x58, 0x55, 0x52,
-	0x4F, 0x4D, 0x4A, 0x47, 0x44, 0x41, 0x3F, 0x3C,
-	0x39, 0x37, 0x34, 0x32, 0x2F, 0x2D, 0x2B, 0x28,
-	0x26, 0x24, 0x22, 0x20, 0x1E, 0x1C, 0x1A, 0x18,
-	0x16, 0x15, 0x13, 0x11, 0x10, 0x0F, 0x0D, 0x0C,
-	0x0B, 0x0A, 0x08, 0x07, 0x06, 0x06, 0x05, 0x04,
-	0x03, 0x03, 0x02, 0x02, 0x02, 0x01, 0x01, 0x01,
-	0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x03,
-	0x03, 0x04, 0x05, 0x06, 0x06, 0x07, 0x08, 0x0A,
-	0x0B, 0x0C, 0x0D, 0x0F, 0x10, 0x11, 0x13, 0x15,
-	0x16, 0x18, 0x1A, 0x1C, 0x1E, 0x20, 0x22, 0x24,
-	0x26, 0x28, 0x2B, 0x2D, 0x2F, 0x32, 0x34, 0x37,
-	0x39, 0x3C, 0x3F, 0x41, 0x44, 0x47, 0x4A, 0x4D,
-	0x4F, 0x52, 0x55, 0x58, 0x5B, 0x5E, 0x61, 0x64,
-	0x67, 0x6A, 0x6D, 0x70, 0x74, 0x77, 0x7A, 0x7D
-};
-
-static const uint32_t bird_colors[] = {
-	0x404000UL,
-	0x104020UL,
-	0x005010UL,
-	0x004040UL,
-	0x083040UL,
-	0x001050UL,
-	0x300050UL,
-	0x401040UL,
-	0x501000UL,
-	0x401818UL,
-	0x400020UL,
-	0x453000UL,
-	0x452000UL,
-	0x204000UL,
-	0x201024UL,
-	0x102014UL,
-	0x201810UL,
-	0x101820UL,
-	0x303030UL,
-	0x202020UL
-};
-
-static const uint32_t ring_colors[] = {
-	0x404000UL,
-	0x104020UL,
-	0x005010UL,
-	0x004040UL,
-	0x083040UL,
-	0x001050UL,
-	0x300050UL,
-	0x401040UL,
-	0x501000UL,
-	0x401818UL,
-	0x400020UL,
-	0x453000UL,
-	0x402000UL,
-	0x204000UL,
-	0x201024UL,
-	0x102014UL,
-	0x201810UL,
-	0x101820UL,
-	0x303030UL,
-	0x202020UL
-};
-
 static const uint32_t radio_colors[] = {
 	0x808080UL,
 	0xA00000UL,
@@ -1168,30 +1087,37 @@ public:
 		program_change_count = 0;
 		brightness = 1;
 		bird_color_index = 0;
-		bird_color = rgba(bird_colors[bird_color_index]);
+		bird_color = rgba(0x404000UL);
 		ring_color_index = 5;
-		ring_color = rgba(ring_colors[ring_color_index]);
+		ring_color = rgba(0x001050UL);
 		radio_enabled = true;
 		radio_message = 0;
 		radio_color = 0;
-		
+
 		memcpy(radio_messages[0], " QUACK! ", 8);
 		memcpy(radio_messages[1], "  NOW!  ", 8);
-		memcpy(radio_messages[2], "LASERS! ", 8);
-		memcpy(radio_messages[3], "SAFETY! ", 8);
+		memcpy(radio_messages[2], "!LASERS!", 8);
+		memcpy(radio_messages[3], "!SAFETY!", 8);
 		memcpy(radio_messages[4], "ASSEMBLE", 8);
 		memcpy(radio_messages[5], "IM DRUNK", 8);
 		memcpy(radio_messages[6], "IM HIGH!", 8);
 		memcpy(radio_messages[7], "IM GONE!", 8);
 
 		memcpy(&radio_name[0], "  DUCK  ", 8);
+		
+		runtime_time_count = Chip_TIMER_ReadCount(LPC_TIMER32_0);
 	}
 	
-	void Reset() {
+	void Reset(bool deep) {
+		
+		if (deep) {
+			memset(this, 0, sizeof(EEPROM));
+		}
+
 		bird_color_index = 0;
-		bird_color = bird_colors[bird_color_index];
+		bird_color = rgba(0x404000UL);
 		ring_color_index = 5;
-		ring_color = ring_colors[ring_color_index];
+		ring_color = rgba(0x001050UL);
 		program_count = 27;
 		program_curr = 0;
 		program_change_count = 0;
@@ -1202,8 +1128,8 @@ public:
 		
 		memcpy(radio_messages[0], " QUACK! ", 8);
 		memcpy(radio_messages[1], "  NOW!  ", 8);
-		memcpy(radio_messages[2], "LASERS! ", 8);
-		memcpy(radio_messages[3], "SAFETY! ", 8);
+		memcpy(radio_messages[2], "!LASERS!", 8);
+		memcpy(radio_messages[3], "!SAFETY!", 8);
 		memcpy(radio_messages[4], "ASSEMBLE", 8);
 		memcpy(radio_messages[5], "IM DRUNK", 8);
 		memcpy(radio_messages[6], "IM HIGH!", 8);
@@ -1234,8 +1160,10 @@ public:
 			radio_messages[0][0] < 0x20 ||
 			radio_name[0] < 0x20) {
 				
-			Reset();
+			Reset(true);
 		}
+
+		runtime_time_count = Chip_TIMER_ReadCount(LPC_TIMER32_0);
 		
 		loaded = true;
 	}
@@ -1267,14 +1195,38 @@ public:
 	void NextBrightness() {
 		if (loaded) {
 			brightness ++;
+			brightness_change_count ++;
 			brightness &= 0x7;
+			Save();
+		}
+	}
+	
+	void UpdateRecvCount() {
+		if (loaded) {
+			recv_message_count ++;
+			Save();
+		}
+	}
+	
+	void UpdateSentCount() {
+		if (loaded) {
+			sent_message_count ++;
+			Save();
+		}
+	}
+
+	void SaveRuntime() {
+		if (loaded) {
+			uint32_t new_runtime_time_count = Chip_TIMER_ReadCount(LPC_TIMER32_0);
+			total_runtime += new_runtime_time_count - runtime_time_count;
+			runtime_time_count = new_runtime_time_count;
 			Save();
 		}
 	}
 	
 	uint32_t program_count;
 	uint32_t program_curr;
-	uint32_t program_change_count;
+	uint32_t runtime_time_count;
 	rgba bird_color;
 	uint32_t bird_color_index;
 	rgba ring_color;
@@ -1291,6 +1243,13 @@ public:
 	char 	 recv_radio_message[8];
 	uint32_t recv_radio_color;
 	uint32_t recv_radio_message_pending;
+
+	// Stats
+	uint32_t recv_message_count;
+	uint32_t sent_message_count;
+	uint32_t program_change_count;
+	uint32_t brightness_change_count;
+	uint64_t total_runtime;
 };
 
 bool EEPROM::loaded = 0;
@@ -4167,6 +4126,7 @@ class SX1280 {
 					settings.recv_radio_color = rxBuffer[7];
 					if (settings.radio_enabled) {
 						settings.recv_radio_message_pending = true;
+						settings.UpdateRecvCount();
 					}
 				}
 			}
@@ -4218,6 +4178,7 @@ class SX1280 {
 				memcpy(buf+16,settings.radio_name,8);
 				memcpy(txBuffer,buf,24);
 				SendBuffer();
+				settings.UpdateSentCount();
 			}
 			
 	private:
@@ -4303,8 +4264,13 @@ class UI {
 
 	int32_t radio_message_selection;
 	int32_t radio_message_current;
+
+	int32_t stats_select_current;
+	int32_t stats_menu_selection;
 	
 public:
+
+	#define LONG_PRESS_TIME 750
 	
 	UI(EEPROM &_settings,
 	   SDD1306 &_sdd1306,
@@ -4354,6 +4320,9 @@ public:
 		mode_start_time = 0;
 		previous_mode = 0;
 		interlude = 0;
+		
+		stats_select_current = 0;
+		stats_menu_selection = 0;
 
 		Chip_IOCON_PinMuxSet(LPC_IOCON, uint8_t(PRIMARY_BUTTON>>8), uint8_t(PRIMARY_BUTTON&0xFF), IOCON_FUNC0 | IOCON_MODE_PULLUP);
 		Chip_GPIO_SetPinDIRInput(LPC_GPIO, uint8_t(PRIMARY_BUTTON>>8), uint8_t(PRIMARY_BUTTON&0xFF));
@@ -4391,7 +4360,7 @@ public:
 
 		if ( (Chip_PININT_GetRiseStates(LPC_PININT) & PININTCH1) ) {
 			Chip_PININT_ClearRiseStates(LPC_PININT, PININTCH1);
-			if ( top_button_down && (timer_ms - top_fall_time) > 10 && (timer_ms - top_fall_time) < 400) {
+			if ( top_button_down && (timer_ms - top_fall_time) > 10 && ((timer_ms - top_fall_time) < LONG_PRESS_TIME)) {
 				top_short_press = true;
 			}
 			top_button_down = false;
@@ -4401,7 +4370,7 @@ public:
 	
 	void TopLongPress() {
 		uint32_t timer_ms = Chip_TIMER_ReadCount(LPC_TIMER32_0);
-		if ( top_button_down && (timer_ms - top_fall_time) > 500) {
+		if ( top_button_down && (timer_ms - top_fall_time) > LONG_PRESS_TIME) {
 			if (Mode() != 0) {
 				SetMode(system_clock_ms, 0);
 			} else {
@@ -4442,6 +4411,9 @@ public:
 				case	8: {
 					MessageSettingsHandler(true, false);
 				} break;
+				case	9: {
+					StatsHandler(true, false);
+				} break;
 			}
 		}
 	}
@@ -4457,7 +4429,7 @@ public:
 
 		if ( (Chip_PININT_GetRiseStates(LPC_PININT) & PININTCH2) ) {
 			Chip_PININT_ClearRiseStates(LPC_PININT, PININTCH2);
-			if ( bottom_button_down && (timer_ms - bottom_fall_time) > 10 && (timer_ms - bottom_fall_time) < 400) {
+			if ( bottom_button_down && (timer_ms - bottom_fall_time) > 10 && ((timer_ms - bottom_fall_time) < LONG_PRESS_TIME)) {
 				bottom_short_press = true;
 			}
 			bottom_button_down = false;
@@ -4467,7 +4439,19 @@ public:
 	
 	void BottomLongPress() {
 		uint32_t timer_ms = Chip_TIMER_ReadCount(LPC_TIMER32_0);
-		if ( bottom_button_down && (timer_ms - bottom_fall_time) > 500) {
+		if (Mode() == 2 && menu_selection == 4) {
+			if ( bottom_button_down && (timer_ms - bottom_fall_time) > 5000) {
+				sdd1306.PlaceAsciiStr(0,0,"        ");
+				sdd1306.PlaceAsciiStr(0,1,"  HARD  ");
+				sdd1306.PlaceAsciiStr(0,2," RESET! ");
+				sdd1306.PlaceAsciiStr(0,3,"        ");
+				sdd1306.Display();
+				delay(1000);
+				settings.Reset(true);
+				NVIC_SystemReset();
+				bottom_button_down = false;
+			}
+		} else if ( bottom_button_down && (timer_ms - bottom_fall_time) > LONG_PRESS_TIME) {
 			if (Mode() != 0) {
 				SetMode(system_clock_ms, 0);
 			} else {
@@ -4507,6 +4491,9 @@ public:
 				} break;
 				case	8: {
 					MessageSettingsHandler(false, true);
+				} break;
+				case	9: {
+					StatsHandler(false, true);
 				} break;
 			}
 		}
@@ -4828,9 +4815,13 @@ public:
 							return;
 						} break;
 				case	3: {
+							menu_scroll = 0;
+							menu_selection = 0;
+							SetMode(system_clock_ms, 9);
+							return;
 						} break;
 				case	4: {
-							settings.Reset();
+							settings.Reset(false);
 							NVIC_SystemReset();
 						} break;
 				case	5: {
@@ -5488,6 +5479,93 @@ public:
 		delay(2000);
 	}
 	
+	void DisplayStats() {
+		if ( stats_menu_selection == 0 ) {
+			sdd1306.SetAttr(0,0,1);
+		} else {
+			sdd1306.SetAttr(0,0,0);
+		}
+
+		if ( stats_menu_selection == 1 ) {
+			sdd1306.SetAttr(0,1,1);
+		} else {
+			sdd1306.SetAttr(0,1,0);
+		}
+		
+		sdd1306.PlaceCustomChar(0,0,0x7B);
+		sdd1306.PlaceCustomChar(1,0,0x1C7);
+		sdd1306.PlaceCustomChar(2,0,0x1C8);
+		sdd1306.PlaceCustomChar(3,0,0x1C9);
+		sdd1306.PlaceCustomChar(4,0,0x1CA);
+		sdd1306.PlaceCustomChar(5,0,0x1CB);
+		sdd1306.PlaceCustomChar(6,0,0x1CC);
+		sdd1306.PlaceCustomChar(7,0,0x1CD);
+		
+		
+		char str[9];
+		sdd1306.PlaceCustomChar(0,1,0x67);
+		sprintf(str,"[%02d/%02d]",stats_select_current,8);
+		sdd1306.PlaceAsciiStr(1,1,str);
+
+		switch(stats_select_current) {
+			case	0: {
+						sdd1306.PlaceAsciiStr(0,2,"PRG CHNG");
+						sprintf(str,"%08d",settings.program_change_count);
+						sdd1306.PlaceAsciiStr(0,3,str);
+					} break;
+			case	1: {
+						sdd1306.PlaceAsciiStr(0,2,"BRT CHNG");
+						sprintf(str,"%08d",settings.brightness_change_count);
+						sdd1306.PlaceAsciiStr(0,3,str);
+					} break;
+			case	2: {
+						sdd1306.PlaceAsciiStr(0,2,"RECV MSG");
+						sprintf(str,"%08d",settings.recv_message_count);
+						sdd1306.PlaceAsciiStr(0,3,str);
+					} break;
+			case	3: {
+						sdd1306.PlaceAsciiStr(0,2,"SENT MSG");
+						sprintf(str,"%08d",settings.sent_message_count);
+						sdd1306.PlaceAsciiStr(0,3,str);
+					} break;
+			case	4: {
+						sdd1306.PlaceAsciiStr(0,2,"TIME ON ");
+						uint32_t hours = settings.total_runtime / 1000 / 60 / 60;
+						uint32_t minutes = (settings.total_runtime / 1000 / 60) % 60;
+						uint32_t seconds = (settings.total_runtime / 1000) % 60;
+						sprintf(str,"%02d:%02d:%02d",hours, minutes, seconds);
+						sdd1306.PlaceAsciiStr(0,3,str);
+					} break;
+		}
+		sdd1306.Display();
+	}
+
+	void StatsHandler(bool top_pressed, bool bottom_pressed) {
+		if (top_pressed) {
+			stats_menu_selection ++;
+			if (stats_menu_selection >= 2) {
+				stats_menu_selection = 0;
+			}
+		}
+		if (bottom_pressed) {
+			switch (stats_menu_selection) { 
+				case	0: {
+							stats_select_current = 0;
+							SetMode(system_clock_ms, 0);
+							settings.Save();
+							return;
+						} break;
+				case	1: {
+							stats_select_current ++;
+							if (stats_select_current >= 5) {
+								stats_select_current = 0;
+							}
+						} break;
+			}
+		}
+		DisplayStats();
+	}
+	
 	void Display() {
 		switch (mode) {
 			case	0:
@@ -5523,6 +5601,9 @@ public:
 					break;
 			case	8:
 					DisplayMessageSettings();
+					break;
+			case	9:
+					DisplayStats();
 					break;
 		}
 	}
@@ -5791,8 +5872,11 @@ private:
 
 		static uint8_t work_buffer[0x80] = { 0 };
 
-		for (uint32_t c = 0; c < 0x80; c++) {
-			work_buffer[c] = max(0UL,(sine_wave[c] - 0x80UL) - 0x20UL);
+		for (uint32_t c = 0; c < 0x40; c++) {
+			work_buffer[c] = c;
+		}
+		for (uint32_t c = 0; c < 0x40; c++) {
+			work_buffer[c+0x40] = 0x40 - c;
 		}
 
 		uint32_t walk = 0;
@@ -6934,6 +7018,10 @@ extern "C" {
 			}
 		}
 
+		if ( (system_clock_ms % (1024*64)) == 0) {
+			g_settings->SaveRuntime();
+		}
+		
 		if ( (system_clock_ms % (1024*32)) == 0) {
 			//g_sx1280->SendMessage();
 		}
