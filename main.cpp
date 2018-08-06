@@ -1511,8 +1511,8 @@ public:
 
 		// Frame data
 		for (int32_t c=0; c<HALF_LEDS; c++) {
-			push_byte_top(0xE0 | max(0L, (brightness * 2) - 1) );
-			push_byte_btm(0xE0 | max(0L, (brightness * 2) - 1) );
+			push_byte_top(0xE0 | max(0L, (brightness * 4) - 3) );
+			push_byte_btm(0xE0 | max(0L, (brightness * 4) - 3) );
 			push_byte_top((leds.led_data[HALF_LEDS*0*3 + c*3+2] & ~(3)) + 4);
 			push_byte_btm((leds.led_data[HALF_LEDS*1*3 + c*3+2] & ~(3)) + 4);
 			push_byte_top((leds.led_data[HALF_LEDS*0*3 + c*3+0] & ~(3)) + 4);
@@ -1763,6 +1763,10 @@ class BQ24295 {
 			void DisableWatchdog() {
 				clearRegisterBits(0x05, (1 << 4));
 				clearRegisterBits(0x05, (1 << 5));
+			}
+			
+			void DisableOTG() { 
+				clearRegisterBits(0x01, (1 << 5));
 			}
 
 			void SetChipThermalRegulationThreshold(uint32_t temperatureC) {
@@ -7707,6 +7711,7 @@ int main(void)
 	if (bq24295.DevicePresent()) {
 		bq24295.SetBoostVoltage(4550);
 		bq24295.DisableWatchdog();
+		bq24295.DisableOTG();
 	}
 
 	EEPROM settings;
@@ -7768,6 +7773,7 @@ int main(void)
 	if (bq24295.DevicePresent()) {
 		bq24295.SetBoostVoltage(4550);
 		bq24295.DisableWatchdog();
+		bq24295.DisableOTG();
 	}
 
 #ifdef ENABLE_USB_MSC
