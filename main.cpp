@@ -1230,6 +1230,7 @@ public:
 		}
 
 		runtime_time_count = Chip_TIMER_ReadCount(LPC_TIMER32_0);
+		recv_radio_message_pending = false;
 		
 		loaded = true;
 	}
@@ -1941,7 +1942,7 @@ class SDD1306 {
 				if (str) {
 					size_t len = min(strlen(str), size_t(8));
 					memset(scroll_message, 0, 9);
-					for (int32_t c=0; c<len; c++) {
+					for (size_t c=0; c<len; c++) {
 						uint8_t ch = uint8_t(str[c]);
 						if ((ch < 0x20) || (ch >= 0x7D)) {
 							scroll_message[c] = 0x20;
