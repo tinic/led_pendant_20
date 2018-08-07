@@ -1161,7 +1161,7 @@ public:
 		memcpy(radio_messages[6], "CAMPTIME", 8);
 		memcpy(radio_messages[7], "!SAFETY!", 8);
 
-		memcpy(&radio_name[0], "  DUCK  ", 8);
+		memcpy(&radio_name[0], "DUCKLING", 8);
 		
 		runtime_time_count = Chip_TIMER_ReadCount(LPC_TIMER32_0);
 	}
@@ -1178,6 +1178,8 @@ public:
 			total_runtime = 0;
 			recv_buffer_ptr = 0;
 			recv_flash_ptr = 0;
+			
+			memcpy(&radio_name[0], "DUCKLING", 8);
 		}
 
 		bird_color_index = 0;
@@ -1200,8 +1202,6 @@ public:
 		memcpy(radio_messages[5], "I'M OUT!", 8);
 		memcpy(radio_messages[6], "CAMPTIME", 8);
 		memcpy(radio_messages[7], "!SAFETY!", 8);
-		
-		memcpy(&radio_name[0], "  DUCK  ", 8);
 		
 		Save();
 	}
