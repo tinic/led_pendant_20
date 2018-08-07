@@ -7991,5 +7991,7 @@ int main(void)
 
 	effects.RunForever();
 	
+	// It's a wrap for 2018!
+	
 	return 0;
 }
