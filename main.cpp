@@ -1154,12 +1154,12 @@ public:
 
 		memcpy(radio_messages[0], " QUACK! ", 8);
 		memcpy(radio_messages[1], "  NOW!  ", 8);
-		memcpy(radio_messages[2], "!LASERS!", 8);
-		memcpy(radio_messages[3], "!SAFETY!", 8);
-		memcpy(radio_messages[4], "ASSEMBLE", 8);
-		memcpy(radio_messages[5], "IM DRUNK", 8);
-		memcpy(radio_messages[6], "IM HIGH!", 8);
-		memcpy(radio_messages[7], "IM GONE!", 8);
+		memcpy(radio_messages[2], "  !NO!  ", 8);
+		memcpy(radio_messages[3], "  YES!  ", 8);
+		memcpy(radio_messages[4], "WAITING!", 8);
+		memcpy(radio_messages[5], "I'M OUT!", 8);
+		memcpy(radio_messages[6], "CAMPTIME", 8);
+		memcpy(radio_messages[7], "!SAFETY!", 8);
 
 		memcpy(&radio_name[0], "  DUCK  ", 8);
 		
@@ -1194,12 +1194,12 @@ public:
 		
 		memcpy(radio_messages[0], " QUACK! ", 8);
 		memcpy(radio_messages[1], "  NOW!  ", 8);
-		memcpy(radio_messages[2], "!LASERS!", 8);
-		memcpy(radio_messages[3], "!SAFETY!", 8);
-		memcpy(radio_messages[4], "ASSEMBLE", 8);
-		memcpy(radio_messages[5], "IM DRUNK", 8);
-		memcpy(radio_messages[6], "IM HIGH!", 8);
-		memcpy(radio_messages[7], "IM GONE!", 8);
+		memcpy(radio_messages[2], "  !NO!  ", 8);
+		memcpy(radio_messages[3], "  YES!  ", 8);
+		memcpy(radio_messages[4], "WAITING!", 8);
+		memcpy(radio_messages[5], "I'M OUT!", 8);
+		memcpy(radio_messages[6], "CAMPTIME", 8);
+		memcpy(radio_messages[7], "!SAFETY!", 8);
 		
 		memcpy(&radio_name[0], "  DUCK  ", 8);
 		
@@ -7350,6 +7350,105 @@ private:
 	}
 };  // class Effects
 
+class UART {
+	
+	#define UART_RXD_PIN 0x0012
+	#define UART_TXD_PIN 0x0013
+	
+	#define UART_RRB_SIZE 128
+	#define UART_SRB_SIZE 128
+
+	#define UART_CMD_SIZE 128
+
+	RINGBUFF_T rxring;
+	uint8_t rxbuff[UART_RRB_SIZE];
+	
+	RINGBUFF_T txring;
+	uint8_t txbuff[UART_SRB_SIZE];
+
+	char cmdbuff[UART_CMD_SIZE];
+	int32_t cmdpos;
+	int32_t cmdlen;
+
+	bool cmdactive;
+
+	public:
+		UART() {
+			Chip_IOCON_PinMuxSet(LPC_IOCON, (UART_TXD_PIN>>8), (UART_TXD_PIN&0xFF), IOCON_FUNC1);
+			Chip_IOCON_PinMuxSet(LPC_IOCON, (UART_RXD_PIN>>8), (UART_RXD_PIN&0xFF), IOCON_FUNC1);
+			
+			Chip_UART_Init(LPC_USART);
+			Chip_UART_SetBaud(LPC_USART, 115200);
+			Chip_UART_ConfigData(LPC_USART, UART_LCR_WLEN8 | UART_LCR_SBS_1BIT | UART_LCR_PARITY_DIS);
+			Chip_UART_TXEnable(LPC_USART);
+
+			RingBuffer_Init(&rxring, rxbuff, 1, UART_RRB_SIZE);
+			RingBuffer_Init(&txring, txbuff, 1, UART_SRB_SIZE);
+			Chip_UART_SetupFIFOS(LPC_USART, UART_FCR_FIFO_EN | UART_FCR_RX_RS | UART_FCR_TX_RS | UART_FCR_TRG_LEV0);
+			Chip_UART_IntEnable(LPC_USART, (UART_IER_RBRINT | UART_IER_RLSINT));
+			NVIC_SetPriority(UART0_IRQn, 1);
+			NVIC_EnableIRQ(UART0_IRQn);
+
+			cmdactive = false;
+			cmdpos = 0;
+			cmdlen = 0;
+		}
+		
+		void RespondToCommand(const char *response) {
+			Chip_UART_SendRB(LPC_USART, &txring, response, strlen(response));
+		}
+		
+		bool ActiveCommand(char *cmd) {
+			CheckUART();
+			if (cmdlen) {
+				cmdlen = 0;
+				strcpy(cmd, cmdbuff);
+				return true;
+			}
+			return false;
+		}
+		
+		void IntHandler() {
+			Chip_UART_IRQRBHandler(LPC_USART, &rxring, &txring);
+		}
+		
+private:
+
+		void CheckUART() {
+			char ch = 0;
+			while ( Chip_UART_ReadRB(LPC_USART, &rxring, (uint8_t *)&ch, 1) > 0 ) {
+				char str[2];
+				str[0] = ch;
+				str[1] = 0;
+				RespondToCommand(str);
+				switch (ch) {
+					case	'@': {
+								cmdactive = true;
+								cmdlen = 0;
+								cmdpos = 0;
+							} break;
+					case	'\r':
+					case	'\n': {
+								if (cmdactive) {
+									RespondToCommand("\n");
+									cmdbuff[cmdpos++] = 0;
+									cmdactive = false;
+									cmdlen = cmdpos;
+									cmdpos = 0;
+								}
+							} break;
+					default: {
+								if (cmdactive) {
+									if (cmdpos < (UART_CMD_SIZE - 1)) {
+										cmdbuff[cmdpos++] = ch;
+									}
+								}
+							} break;
+				}
+			}
+		}
+};
+
 }  // namespace {
 
 static LEDs *g_leds = 0;
@@ -7360,6 +7459,7 @@ static SX1280 *g_sx1280 = 0;
 static SDD1306 *g_sdd1306 = 0;
 static EEPROM *g_settings = 0;
 static FT25H16S *g_ft25h16s = 0;
+static UART *g_uart = 0;
 
 #ifdef ENABLE_USB_MSC
 static USBD_HANDLE_T g_hUsb;
@@ -7393,6 +7493,33 @@ extern "C" {
 			g_settings->SaveRuntime();
 		}
 		
+		g_effects->CheckPostTime();
+		
+		char cmd[128];
+		if (g_uart->ActiveCommand(cmd)) {
+			if (strncmp(cmd,"VERSION", 7) == 0) {
+				g_uart->RespondToCommand("Duck Pond Pendant V2.0\r\n");
+			} else if (strncmp(cmd,"NAME", 4) == 0) {
+				if (strlen(cmd+4) < 8) {
+					g_uart->RespondToCommand("NAME LEN == 8.\r\n");
+				} else {
+					memcpy(g_settings->radio_name, cmd+4, 8);
+					g_settings->Save();
+					g_uart->RespondToCommand("OK.\r\n");
+				}
+			} else if (strncmp(cmd,"MSGS", 4) == 0) {
+				if (strlen(cmd+4) < 64) {
+					g_uart->RespondToCommand("MSGS LEN == 64.\r\n");
+				} else {
+					memcpy(g_settings->radio_messages, cmd+4, 8*8);
+					g_settings->Save();
+					g_uart->RespondToCommand("OK.\r\n");
+				}
+			} else if (strncmp(cmd,"TEST", 4) == 0) {
+				g_sx1280->SendMessage();
+			}
+		}
+
 #if 0
 		if ( (system_clock_ms % (1024*8)) == 0) {
 			g_settings->radio_color ++;
@@ -7405,15 +7532,16 @@ extern "C" {
 		}
 #endif  // #if 0
 		
-		g_effects->CheckPostTime();
 	}
 
 	void TIMER32_0_IRQHandler(void)
-	{
+	{	
+		// nop
 	}
 
 	void UART_IRQHandler(void)
 	{
+		g_uart->IntHandler();
 	}
 	
 	void FLEX_INT0_IRQHandler(void)
@@ -7802,7 +7930,50 @@ int main(void)
 
 	// start 1ms timer
 	SysTick_Config(SystemCoreClock / 1000);
-
+	
+	UART uart; g_uart = &uart;
+	
+	uart.RespondToCommand("Duck Pond Pendant V2.0 by Tinic Uro (c) 2018\r\n");
+	uart.RespondToCommand("SDD1306 ");
+	if (sdd1306.DevicePresent()) {
+		uart.RespondToCommand("OK.\r\n");
+	} else {
+		uart.RespondToCommand("BAD!\r\n");
+	}
+	uart.RespondToCommand("SX1280 ");
+	if (sx1280.DevicePresent()) {
+		uart.RespondToCommand("OK.\r\n");
+	} else {
+		uart.RespondToCommand("BAD!\r\n");
+	}
+	uart.RespondToCommand("BQ24295 ");
+	if (bq24295.DevicePresent()) {
+		if (bq24295.IsInFaultState()) {
+			char str[9];
+			uint8_t s = bq24295.FaultState();
+			sprintf(str,"%c%c%c%c%c%c%c%c\r\n",
+				(s&0x01)?'1':'0',
+				(s&0x02)?'1':'0',
+				(s&0x04)?'1':'0',
+				(s&0x08)?'1':'0',
+				(s&0x10)?'1':'0',
+				(s&0x20)?'1':'0',
+				(s&0x40)?'1':'0',
+				(s&0x80)?'1':'0');
+			uart.RespondToCommand(str);
+		} else {
+			uart.RespondToCommand("OK.\r\n");
+		}
+	} else {
+		uart.RespondToCommand("BAD!\r\n");
+	}
+	uart.RespondToCommand("FT25H16S ");
+	if (ft25h16s.DevicePresent()) {
+		uart.RespondToCommand("OK.\r\n");
+	} else {
+		uart.RespondToCommand("BAD!\r\n");
+	}
+	
 	Effects effects(settings, random, leds, spi, sdd1306, ui); g_effects = &effects;
 
 	effects.RunForever();
