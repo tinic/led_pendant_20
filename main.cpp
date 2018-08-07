@@ -4640,46 +4640,50 @@ public:
 		}
 	}
 	
+	void HardReset() {
+		sdd1306.PlaceAsciiStr(0,0,"        ");
+		sdd1306.PlaceAsciiStr(0,1,"  HARD  ");
+		sdd1306.PlaceAsciiStr(0,2," RESET! ");
+		sdd1306.PlaceAsciiStr(0,3,"[00/04] ");
+		sdd1306.Display();
+
+		Chip_WWDT_SetTimeOut(LPC_WWDT, 60 * Chip_Clock_GetWDTOSCRate() / 4);
+		NVIC_DisableIRQ(I2C0_IRQn);
+		NVIC_DisableIRQ(WDT_IRQn);
+		NVIC_DisableIRQ(PIN_INT0_IRQn);  
+		NVIC_DisableIRQ(PIN_INT1_IRQn);  
+		NVIC_DisableIRQ(PIN_INT2_IRQn);  
+
+		sdd1306.PlaceAsciiStr(0,3,"[01/04] ");
+		sdd1306.Display();
+
+		settings.Reset(true);
+
+		sdd1306.PlaceAsciiStr(0,3,"[02/04] ");
+		sdd1306.Display();
+		
+		ft25h16s.chip_erase();
+
+		sdd1306.PlaceAsciiStr(0,3,"[03/04] ");
+		sdd1306.Display();
+
+		EEPROM::loaded = false;
+		
+		delay(500);
+
+		sdd1306.PlaceAsciiStr(0,3,"[04/04] ");
+		sdd1306.Display();
+
+		delay(500);
+
+		NVIC_SystemReset();
+	}
+	
 	void BottomLongPress() {
 		uint32_t timer_ms = Chip_TIMER_ReadCount(LPC_TIMER32_0);
 		if (Mode() == 2 && menu_selection == 5) {
 			if ( bottom_button_down && (timer_ms - bottom_fall_time) > 5000) {
-				sdd1306.PlaceAsciiStr(0,0,"        ");
-				sdd1306.PlaceAsciiStr(0,1,"  HARD  ");
-				sdd1306.PlaceAsciiStr(0,2," RESET! ");
-				sdd1306.PlaceAsciiStr(0,3,"[00/04] ");
-				sdd1306.Display();
-
-				Chip_WWDT_SetTimeOut(LPC_WWDT, 60 * Chip_Clock_GetWDTOSCRate() / 4);
-				NVIC_DisableIRQ(I2C0_IRQn);
-				NVIC_DisableIRQ(WDT_IRQn);
-				NVIC_DisableIRQ(PIN_INT0_IRQn);  
-				NVIC_DisableIRQ(PIN_INT1_IRQn);  
-				NVIC_DisableIRQ(PIN_INT2_IRQn);  
-
-				sdd1306.PlaceAsciiStr(0,3,"[01/04] ");
-				sdd1306.Display();
-
-				settings.Reset(true);
-
-				sdd1306.PlaceAsciiStr(0,3,"[02/04] ");
-				sdd1306.Display();
-				
-				ft25h16s.chip_erase();
-
-				sdd1306.PlaceAsciiStr(0,3,"[03/04] ");
-				sdd1306.Display();
-
-				EEPROM::loaded = false;
-				
-				delay(500);
-
-				sdd1306.PlaceAsciiStr(0,3,"[04/04] ");
-				sdd1306.Display();
-
-				delay(500);
-
-				NVIC_SystemReset();
+				HardReset();
 				bottom_button_down = false;
 			}
 		} else if ( bottom_button_down && (timer_ms - bottom_fall_time) > LONG_PRESS_TIME) {
@@ -5771,7 +5775,7 @@ public:
 		
 		
 		char str[9];
-		sdd1306.PlaceCustomChar(0,1,0x67);
+		sdd1306.PlaceCustomChar(0,1,0x68);
 		sprintf(str,"[%02d/%02d]",stats_select_current + 1,8);
 		sdd1306.PlaceAsciiStr(1,1,str);
 
@@ -7516,6 +7520,9 @@ extern "C" {
 					g_uart->RespondToCommand("OK.\r\n");
 				}
 			} else if (strncmp(cmd,"TEST", 4) == 0) {
+				g_sx1280->SendMessage();
+			} else if (strncmp(cmd,"RESET", 4) == 0) {
+				g_ui->HardReset();
 				g_sx1280->SendMessage();
 			}
 		}
