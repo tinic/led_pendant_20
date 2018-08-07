@@ -4916,7 +4916,7 @@ public:
 					0x6D, 0x70, 0x70, 0x70, 0x70, 0x70, 0x73,
 				};
 				for (uint32_t c=0; c<7; c++) {
-					sdd1306.PlaceCustomChar(c+x,y,val_to_chr[val*7+c]);
+					sdd1306.PlaceCustomChar(c+x,y,val_to_chr[val*7+c]+1);
 				}
 			} else {
 				const uint8_t val_to_chr[7*14] = {
@@ -4936,7 +4936,7 @@ public:
 					0x6D, 0x70, 0x70, 0x70, 0x70, 0x70, 0x73,
 				};
 				for (uint32_t c=0; c<7; c++) {
-					sdd1306.PlaceCustomChar(c+x,y,val_to_chr[val*7+c]);
+					sdd1306.PlaceCustomChar(c+x,y,val_to_chr[val*7+c]+1);
 				}
 			}
 		}
@@ -4973,15 +4973,15 @@ public:
 		sdd1306.PlaceCustomChar(5,0,0xAE);
 		sdd1306.PlaceCustomChar(6,0,0xAF);
 		sdd1306.PlaceCustomChar(7,0,0xA0+(system_clock_ms/0x400)%8);
-		sdd1306.PlaceCustomChar(0,1,0x65);
+		sdd1306.PlaceCustomChar(0,1,0x66);
 		DisplayBar(1,1,7,uint8_t(settings.brightness), 0);
-		sdd1306.PlaceCustomChar(0,2,0x67);
+		sdd1306.PlaceCustomChar(0,2,0x68);
 		char str[9];
 		sprintf(str,"[%02d/%02d]",settings.program_curr + 1,settings.program_count);
 		sdd1306.PlaceAsciiStr(1,2,str);
 
 
-		sdd1306.PlaceCustomChar(0,3,0x66);
+		sdd1306.PlaceCustomChar(0,3,0x67);
 		uint8_t bat_stat = bq24295.GetStatus();
 		if (BadConnection()) {
 			sdd1306.PlaceAsciiStr(1,3,"BATERR!");
@@ -4999,7 +4999,7 @@ public:
 	}
 	
 	void DisplaySettings() {
-		sdd1306.PlaceCustomChar(0,0,0x7B);
+		sdd1306.PlaceCustomChar(0,0,0x7C);
 		sdd1306.PlaceCustomChar(1,0,0x149);
 		sdd1306.PlaceCustomChar(2,0,0x14A);
 		sdd1306.PlaceCustomChar(3,0,0x14B);
@@ -5117,7 +5117,7 @@ public:
 					} break;
 		}
 		
-		sdd1306.PlaceCustomChar(0,0,0x7B);
+		sdd1306.PlaceCustomChar(0,0,0x7C);
 		
 		if (rgb_selection == 1) {
 			if (ring_or_duck) {
@@ -5157,13 +5157,13 @@ public:
 			}
 		}
 		
-		sdd1306.PlaceCustomChar(0,1,0x68);
+		sdd1306.PlaceCustomChar(0,1,0x69);
 		DisplayBar(1,1,7,uint8_t(ring_or_duck ? settings.ring_color.r()/16 : settings.bird_color.r()/16), 0);
 
-		sdd1306.PlaceCustomChar(0,2,0x69);
+		sdd1306.PlaceCustomChar(0,2,0x6A);
 		DisplayBar(1,2,7,uint8_t(ring_or_duck ? settings.ring_color.g()/16 : settings.bird_color.g()/16), 0);
 
-		sdd1306.PlaceCustomChar(0,3,0x6A);
+		sdd1306.PlaceCustomChar(0,3,0x6B);
 		DisplayBar(1,3,7,uint8_t(ring_or_duck ? settings.ring_color.b()/16 : settings.bird_color.b()/16), 0);
 
 		sdd1306.Display();
@@ -5231,7 +5231,7 @@ public:
 		sdd1306.SetAttr(0,3,0); 
 		sdd1306.SetAttr(0,radio_settings_selection,1);
 		
-		sdd1306.PlaceCustomChar(0,0,0x7B);
+		sdd1306.PlaceCustomChar(0,0,0x7C);
 		sdd1306.PlaceCustomChar(1,0,0x17A);
 		sdd1306.PlaceCustomChar(2,0,0x17B);
 		sdd1306.PlaceCustomChar(3,0,0x17C);
@@ -5472,7 +5472,7 @@ public:
 			sdd1306.SetAttr(0,0,0);
 		}
 		
-		sdd1306.PlaceCustomChar(0,0,0x7B);
+		sdd1306.PlaceCustomChar(0,0,0x7C);
 		sdd1306.PlaceCustomChar(1,0,0x1A2);
 		sdd1306.PlaceCustomChar(2,0,0x1A3);
 		sdd1306.PlaceCustomChar(3,0,0x1A4);
@@ -5542,7 +5542,7 @@ public:
 			sdd1306.SetAttr(0,1,0);
 		}
 		
-		sdd1306.PlaceCustomChar(0,0,0x7B);
+		sdd1306.PlaceCustomChar(0,0,0x7C);
 		sdd1306.PlaceCustomChar(1,0,0x1A9);
 		sdd1306.PlaceCustomChar(2,0,0x1AA);
 		sdd1306.PlaceCustomChar(3,0,0x1AB);
@@ -5625,14 +5625,14 @@ public:
 				sdd1306.PlaceCustomChar(c,3,0x1C1+c-1);
 			}
 			if (sdd1306.DevicePresent()) {
-				sdd1306.PlaceCustomChar(7,0,0x7C);
+				sdd1306.PlaceCustomChar(7,0,0x7D);
 			} else {
-				sdd1306.PlaceCustomChar(7,0,0x7B);
+				sdd1306.PlaceCustomChar(7,0,0x7C);
 			}
 			if (sx1280.DevicePresent()) {
-				sdd1306.PlaceCustomChar(7,1,0x7C);
+				sdd1306.PlaceCustomChar(7,1,0x7D);
 			} else {
-				sdd1306.PlaceCustomChar(7,1,0x7B);
+				sdd1306.PlaceCustomChar(7,1,0x7C);
 			}
 			bool bq24295_fault = false;
 			if (bq24295.DevicePresent()) {
@@ -5643,12 +5643,12 @@ public:
 					sdd1306.PlaceCustomChar(7,2,0x7C);
 				}
 			} else {
-				sdd1306.PlaceCustomChar(7,2,0x7B);
+				sdd1306.PlaceCustomChar(7,2,0x7C);
 			}
 			if (ft25h16s.DevicePresent()) {
-				sdd1306.PlaceCustomChar(7,3,0x7C);
+				sdd1306.PlaceCustomChar(7,3,0x7D);
 			} else {
-				sdd1306.PlaceCustomChar(7,3,0x7B);
+				sdd1306.PlaceCustomChar(7,3,0x7C);
 			}
 			
 			sdd1306.Display();
@@ -5760,7 +5760,7 @@ public:
 			sdd1306.SetAttr(0,1,0);
 		}
 		
-		sdd1306.PlaceCustomChar(0,0,0x7B);
+		sdd1306.PlaceCustomChar(0,0,0x7C);
 		sdd1306.PlaceCustomChar(1,0,0x1C7);
 		sdd1306.PlaceCustomChar(2,0,0x1C8);
 		sdd1306.PlaceCustomChar(3,0,0x1C9);
@@ -5869,7 +5869,7 @@ public:
 			sdd1306.SetAttr(0,1,0);
 		}
 		
-		sdd1306.PlaceCustomChar(0,0,0x7B);
+		sdd1306.PlaceCustomChar(0,0,0x7C);
 		sdd1306.PlaceCustomChar(1,0,0x1CE);
 		sdd1306.PlaceCustomChar(2,0,0x1CF);
 		sdd1306.PlaceCustomChar(3,0,0x1D0);
@@ -7969,6 +7969,12 @@ int main(void)
 	}
 	uart.RespondToCommand("FT25H16S ");
 	if (ft25h16s.DevicePresent()) {
+		uart.RespondToCommand("OK.\r\n");
+	} else {
+		uart.RespondToCommand("BAD!\r\n");
+	}
+	uart.RespondToCommand("Battery Pull Down ");
+	if (!ui.BadConnection()) {
 		uart.RespondToCommand("OK.\r\n");
 	} else {
 		uart.RespondToCommand("BAD!\r\n");
